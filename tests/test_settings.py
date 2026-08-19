@@ -5,12 +5,9 @@ from pathlib import Path
 
 import pytest
 from comken import config
+from comken.exceptions import ConfigInvalidValueError
 
-from src.exceptions import InvalidHeaderRowError, InvalidOutputPrefixError
-from src.settings import (
-    DEFAULT_CSV_KEY_COLUMN,
-    load_settings,
-)
+from src.settings import load_settings
 
 
 @pytest.fixture
@@ -31,24 +28,23 @@ def _write_config(
     input_xlsx: str,
     sheet: str = "Sheet1",
     key_column: str = "業務用ID",
+    csv_key_column: str = "お客様ID",
     header_row: int | str = 1,
     output_prefix: str = "最終_",
     password: str = "",
-    csv_key_column: str | None = None,
 ) -> Path:
     text = "[FILES]\n"
     text += f"WEST_CSV = {west}\n"
     text += f"EAST_CSV = {east}\n"
     text += f"INPUT_XLSX = {input_xlsx}\n\n"
+    text += "[CSV]\n"
+    text += f"KEY_COLUMN = {csv_key_column}\n\n"
     text += "[EXCEL]\n"
     text += f"SHEET = {sheet}\n"
     text += f"KEY_COLUMN = {key_column}\n"
     text += f"HEADER_ROW = {header_row}\n"
     text += f"OUTPUT_PREFIX = {output_prefix}\n"
     text += f"PASSWORD = {password}\n\n"
-    if csv_key_column is not None:
-        text += "[CSV]\n"
-        text += f"KEY_COLUMN = {csv_key_column}\n\n"
     text += "[転記_MAPPING]\n"
     text += "お名前 = 氏名\n"
 
@@ -63,7 +59,6 @@ def test_load_settings_reads_all_values(tmp_path: Path, restore_config_singleton
         west=str(tmp_path / "west.csv"),
         east=str(tmp_path / "east.csv"),
         input_xlsx=str(tmp_path / "input.xlsx"),
-        csv_key_column="お客様ID",
     )
     config.read(config_path)
 
@@ -72,30 +67,13 @@ def test_load_settings_reads_all_values(tmp_path: Path, restore_config_singleton
     assert settings.west_csv_path == tmp_path / "west.csv"
     assert settings.east_csv_path == tmp_path / "east.csv"
     assert settings.input_xlsx_path == tmp_path / "input.xlsx"
-    assert settings.layout.csv_key_column == "お客様ID"
-    assert settings.layout.excel_sheet == "Sheet1"
-    assert settings.layout.excel_key_column == "業務用ID"
-    assert settings.layout.excel_header_row == 1
+    assert settings.csv_key_column == "お客様ID"
+    assert settings.excel_sheet == "Sheet1"
+    assert settings.excel_key_column == "業務用ID"
+    assert settings.excel_header_row == 1
     assert settings.output_prefix == "最終_"
     assert settings.password == ""
     assert settings.mapping == {"お名前": "氏名"}
-
-
-def test_load_settings_uses_default_csv_key_column_when_csv_section_missing(
-    tmp_path: Path, restore_config_singleton
-) -> None:
-    # [CSV] セクションを省略（既定の "お客様ID" が使われる）
-    config_path = _write_config(
-        tmp_path,
-        west=str(tmp_path / "west.csv"),
-        east=str(tmp_path / "east.csv"),
-        input_xlsx=str(tmp_path / "input.xlsx"),
-    )
-    config.read(config_path)
-
-    settings = load_settings()
-
-    assert settings.layout.csv_key_column == DEFAULT_CSV_KEY_COLUMN
 
 
 def test_load_settings_rejects_blank_output_prefix(
@@ -110,7 +88,8 @@ def test_load_settings_rejects_blank_output_prefix(
     )
     config.read(config_path)
 
-    with pytest.raises(InvalidOutputPrefixError, match="OUTPUT_PREFIX"):
+    # comken の config.text() が空欄（前後の空白のみ）を ConfigInvalidValueError で止める
+    with pytest.raises(ConfigInvalidValueError, match="OUTPUT_PREFIX"):
         load_settings()
 
 
@@ -127,7 +106,8 @@ def test_load_settings_rejects_invalid_header_row(
     )
     config.read(config_path)
 
-    with pytest.raises(InvalidHeaderRowError, match="HEADER_ROW"):
+    # comken の config.int_value(..., minimum=1) が範囲外を ConfigInvalidValueError で止める
+    with pytest.raises(ConfigInvalidValueError, match="HEADER_ROW"):
         load_settings()
 
 
@@ -156,5 +136,15 @@ def test_load_settings_returns_mapping_as_configured(
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows のみ検証")
 def test_default_csv_key_column_is_顧客_id(tmp_path: Path, restore_config_singleton) -> None:
-    """既定のキー列が「お客様ID」であることを確認。"""
-    assert DEFAULT_CSV_KEY_COLUMN == "お客様ID"
+    """config.ini.example の [CSV] KEY_COLUMN が「お客様ID」であることを確認。"""
+    config_path = _write_config(
+        tmp_path,
+        west="w",
+        east="e",
+        input_xlsx="i",
+    )
+    config.read(config_path)
+
+    settings = load_settings()
+
+    assert settings.csv_key_column == "お客様ID"

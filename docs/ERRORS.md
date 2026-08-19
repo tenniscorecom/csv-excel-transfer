@@ -105,16 +105,16 @@
 
 ## プロジェクト固有のエラー
 
-| エラー名・症状 | 意味 | 対処 |
+このツール固有の例外はありません。下の表は comken の例外をこのツールの文脈で引いたものです。
+
+| エラー名 | 意味 | 対処 |
 |---|---|---|
-| `CustomerIdDuplicateAcrossCsvError` | 西CSV と 東CSV の両方に同じお客様IDが見つかった | メッセージに表示されたお客様IDを西/東で照らし合わせ、どちらかに寄せる。運用ルールが決まっていない場合は管理者に相談する |
-| `InvalidOutputPrefixError` | `[EXCEL] OUTPUT_PREFIX` が空欄で、出力先が INPUT エクセル自身になる設定になっている | `[EXCEL] OUTPUT_PREFIX` に「最終_」のような接頭辞を設定する。空欄では転記後の成果物まで元ファイル削除時に消えるため設定不可 |
-| `InputEqualsOutputError` | 組み立てた出力パスが INPUT エクセル自身に解決されてしまう | `[EXCEL] OUTPUT_PREFIX` に「最終_」のような接頭辞を設定する。`InvalidOutputPrefixError` で止められない相対パス・大文字小文字違いのケースを最終砦としてここで止める |
-| `InvalidHeaderRowError` | `[EXCEL] HEADER_ROW` が1以上の整数として読めない、または0以下 | `[EXCEL] HEADER_ROW` に1以上の整数（例: 1、2）を設定する。見出し行を確認し、既定値に黙って戻さない |
+| `ConfigInvalidValueError`（`OUTPUT_PREFIX`） | `[EXCEL] OUTPUT_PREFIX` が空欄（前後の空白のみ） | `[EXCEL] OUTPUT_PREFIX` に「最終_」のような接頭辞を設定する。空欄では転記後の成果物まで元ファイル削除時に消えるため設定不可 |
+| `ConfigInvalidValueError`（`HEADER_ROW`） | `[EXCEL] HEADER_ROW` が1以上の整数として読めない、または0以下 | `[EXCEL] HEADER_ROW` に1以上の整数（例: 1、2）を設定する。見出し行を確認し、既定値に黙って戻さない |
+| `CsvRowDuplicateKeyError`（マージ時） | 西CSV と 東CSV の両方に同じお客様IDが見つかった | メッセージに表示されたお客様IDを西/東で照らし合わせ、どちらかに寄せる。運用ルールが決まっていない場合は管理者に相談する |
 | `ExcelApplicationNotAvailableError` | パスワード付き保存をしようとしたが、このPCにExcelが入っていない | パスワードを空欄にして再実行する（パスワードなしならExcel不要）、またはExcelがインストールされたPCで実行する |
-| `OutputFileMissingError` | 最終ファイルが保存先パスに実在しない（openpyxl / COM が保存失敗を例外で上げなかった可能性） | 出力先に同名のファイルが他で開かれていないか、ディスクの空き容量があるかを確認し、閉じてから再実行する。**DRY-RUN で先に確認する習慣** が再発防止になる |
-| `SourceFileDeletionError` | 元3ファイル（西CSV・東CSV・INPUT エクセル）の削除が一部失敗した。最終ファイルは保存済み | メッセージに表示された残っているファイルを他で開いていないか、読み取り専用になっていないかを確認して手動で削除するか、もう一度実行する。古いCSVが残ると次回古いデータで転記されるので放置しない |
-| 入力ファイルは消えたのに最終ファイルが無い | パスワード付き保存の途中でCOMが失敗し、元3ファイルも `delete_file` が走る前に中断した | 通常は発生しない（成功後にしか `delete_file` を呼ばない）。起きたら作業対象.xlsx を取り寄せ直す。**DRY-RUN で先に確認する習慣** が再発防止になる |
+| `ExcelSaveNotCompletedError` | 最終ファイルが保存先パスに実在しない（openpyxl / COM が保存失敗を例外で上げなかったときに comken 側が見つける） | 出力先に同名のファイルが他で開かれていないか、ディスクの空き容量があるかを確認し、閉じてから再実行する。**DRY-RUN で先に確認する習慣** が再発防止になる |
+| `FileDeletionError` | 元3ファイル（西CSV・東CSV・INPUT エクセル）の削除が一部失敗した。最終ファイルは保存済み | メッセージに表示された残っているファイルを他で開いていないか、読み取り専用になっていないかを確認して手動で削除するか、もう一度実行する。古いCSVが残ると次回古いデータで転記されるので放置しない |
 | `ExcelColumnNotFoundError`（mapping で指定した列が見出しにない） | `[転記_MAPPING]` の右側（転記先）または左側（転記元）の列名が実ファイルの見出しと食い違っている | INPUT エクセル / CSV の **1行目** を開き、見出し名が config.ini と一致しているか確認する。全角・半角・空白にも注意 |
 
 ---

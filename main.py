@@ -1,10 +1,7 @@
-"""
-main.py — エントリポイント
+"""main.py — エントリポイント
 
 このプロジェクトの入口。`実行.bat` か `python main.py` で実行する。
-
 処理の本体は src/ 以下に書き、ここでは「実行 → エラーの受け止め」だけを行う。
-社内 RPA 基盤から動かす場合は、下の「社内 RPA 基盤から実行する場合」を参照。
 """
 
 import logging
@@ -35,6 +32,7 @@ if __name__ == "__main__":
             "FILES.WEST_CSV",
             "FILES.EAST_CSV",
             "FILES.INPUT_XLSX",
+            "CSV.KEY_COLUMN",
             "EXCEL.SHEET",
             "EXCEL.KEY_COLUMN",
             "EXCEL.HEADER_ROW",
@@ -85,26 +83,3 @@ if __name__ == "__main__":
     except Exception:
         logger.error("予期しないエラーが発生しました", exc_info=True)
         raise
-
-# ── 社内 RPA 基盤から実行する場合 ─────────────────────────────────────────────
-# **実行.bat を使っても、`python <このフォルダ>\main.py` を直接呼んでもよい。**
-# どちらの経路でも `PYTHONPATH` を `実行.bat` が肩代わりするので、基盤側の指定は要らない。
-# `実行.bat` は終了コードをそのまま返すので、基盤はそれで成否を判断できる
-# （`pause` を入れないのは、無人実行で止まらないようにするため）。
-# カレントは C:\ など別の場所になるが、config.ini・logs はこのフォルダを基準に
-# 探すので、そのままで動く（comken の project_dir() がその役目）。
-#
-# 上の `setup_logging()` と `main()` の2行を、次の形に差し替える。
-# 基盤が設定の初期化・時間計測・ログ設定をしてから main を呼ぶので、
-# setup_logging() は呼ばない（呼んでも二重設定にはならないが、基盤の設定が正になる）。
-#
-#     from comken.toolbox.rpa import backoffice   # イントラネットのツールなら intranet に変える
-#
-#     PROJECT_NAME = "顧客情報転記"   # 基盤へ渡す名前。ログの識別に使われる
-#
-#     if __name__ == "__main__":
-#         try:
-#             backoffice(main, PROJECT_NAME)
-#         except ComkenError as e:
-#             logger.error("処理を中断しました: %s", e)
-#             raise
