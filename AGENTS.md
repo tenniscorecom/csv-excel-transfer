@@ -85,22 +85,13 @@ output.py
 
 ### `src/settings.py`
 
-`config.ini` の読み取りとアプリケーション用設定への変換は `settings.py` に閉じて
-ください。
+**このファイルは廃止した（B 案）。** 設定の読み取りは `comken.config` を
+`src/run.py` から直接呼ぶ方式に統一してある（薄いラッパーは冗長だったため）。
 
-理想的な流れは以下です。
-
-```text
-config.ini
-  ↓
-load_settings()
-  ↓
-Settings
-  ↓
-run()
-```
-
-業務処理側から直接 `config` を大量に参照する構造にはしないでください。
+`config.FILES.WEST_CSV` / `config.EXCEL.*` / `config.int_value(...)` /
+`config.text(...)` / `config.mapping("転記_MAPPING")` を `src/run.py` が直接読み、
+`run()` に渡す。`main.py` の `config.require(...)` は必須項目をまとめて確かめる
+起動時チェックとしてそのまま使う。
 
 ---
 

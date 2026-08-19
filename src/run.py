@@ -8,17 +8,20 @@
     4. すべて成功したら、西CSV・東CSV・INPUT エクセル（元ファイル）を削除する
        途中で失敗したら元ファイルは消さない（消えると再実行が効かなくなる）
 
+設定の読み取りは `comken.config` を直接使う（`src/settings.py` は廃止）。
+main.py で `config.require(...)` が必須項目をまとめて確かめたあと、
+ここでは型変換つきのアクセサで値を取り出す。
+
 設計判断とルールの理由は docs/仕様書.md を参照。
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 
+from comken import config
 from comken.core import delete_files
 from comken.toolbox.csv import index_files
 from comken.toolbox.excel import ExcelWriter
-
-from src.settings import load_settings
 
 
 @dataclass(frozen=True)
@@ -46,36 +49,35 @@ def run() -> TransferResult:
         comken.exceptions.ExcelApplicationNotAvailableError:
             パスワード付き保存時、この PC に Excel が入っていない場合。
     """
-    settings = load_settings()
-
     # 出力パスは config.text("EXCEL.OUTPUT_PREFIX") が空欄を弾くため、
     # 接頭辞は必ず1文字以上で、出力ファイル名は入力と必ず別名になる
-    output_path = settings.input_xlsx_path.parent / (
-        settings.output_prefix + settings.input_xlsx_path.name
+    output_path = config.FILES.INPUT_XLSX.parent / (
+        config.text("EXCEL.OUTPUT_PREFIX") + config.FILES.INPUT_XLSX.name
     )
 
     lookup = index_files(
-        [settings.west_csv_path, settings.east_csv_path],
-        settings.csv_key_column,
+        [config.FILES.WEST_CSV, config.FILES.EAST_CSV],
+        config.CSV.KEY_COLUMN,
     )
 
     # ブックを開く → シートを取って転記 → 保存（パスワード有無は ExcelWriter に任せる）
     # save() の read_pw="" はパスワード無し経路。分岐・dry-run・保存後の存在確認は comken 側で行う
-    with ExcelWriter(settings.input_xlsx_path) as writer:
-        sheet = writer.sheet(settings.excel_sheet)
+    with ExcelWriter(config.FILES.INPUT_XLSX) as writer:
+        sheet = writer.sheet(config.EXCEL.SHEET)
         matched = sheet.transfer_by_mapping(
-            key_col=settings.excel_key_column,
+            key_col=config.EXCEL.KEY_COLUMN,
             lookup=lookup,
-            mapping=settings.mapping,
-            header_row=settings.excel_header_row,
+            mapping=config.mapping("転記_MAPPING"),
+            header_row=config.int_value("EXCEL.HEADER_ROW", minimum=1),
         )
-        writer.save(path=output_path, read_pw=settings.password)
+        writer.save(path=output_path, read_pw=str(config.EXCEL.PASSWORD))
 
     # 最終ファイルの保存が成功した場合にだけ元ファイルを消す。途中で例外が出ると
     # 元ファイルが残るため、再実行すれば何度でもやり直せる
     delete_files(
-        [settings.west_csv_path, settings.east_csv_path, settings.input_xlsx_path],
+        [config.FILES.WEST_CSV, config.FILES.EAST_CSV, config.FILES.INPUT_XLSX],
         missing_ok=True,
     )
 
     return TransferResult(output_path=output_path, matched_rows=matched)
+

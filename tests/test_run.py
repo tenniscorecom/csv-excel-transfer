@@ -1,10 +1,10 @@
-"""tests/test_run.py — run.py のオーケストレーション全体"""
+﻿"""tests/test_run.py — run.py のオーケストレーション全体"""
 
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from comken import dry_run
+from comken import config, dry_run
 from comken.exceptions import (
     CsvRowDuplicateKeyError,
     FileDeletionError,
@@ -13,32 +13,61 @@ from comken.exceptions import (
 from openpyxl import load_workbook
 
 from src.run import run
-from src.settings import Settings
 from tests.conftest import SAMPLE_MAPPING
 
 
-def _build_settings(
-    west_csv: Path, east_csv: Path, input_xlsx: Path, output_prefix: str = "最終_"
-) -> Settings:
-    return Settings(
-        west_csv_path=west_csv,
-        east_csv_path=east_csv,
-        input_xlsx_path=input_xlsx,
-        csv_key_column="お客様ID",
-        excel_sheet="Sheet1",
-        excel_key_column="業務用ID",
-        excel_header_row=1,
-        mapping=SAMPLE_MAPPING,
-        output_prefix=output_prefix,
-        password="",
-    )
+@pytest.fixture
+def restore_config_singleton():
+    """comken.config の共有状態をテスト間で元に戻す."""
+    original = config._singleton
+    try:
+        yield
+    finally:
+        config._singleton = original
+
+
+def _write_config(
+    tmp_path: Path,
+    *,
+    west: str,
+    east: str,
+    input_xlsx: str,
+    sheet: str = "Sheet1",
+    key_column: str = "業務用ID",
+    csv_key_column: str = "お客様ID",
+    header_row: int | str = 1,
+    output_prefix: str = "最終_",
+    password: str = "",
+    mapping: dict[str, str] | None = None,
+) -> Path:
+    if mapping is None:
+        mapping = SAMPLE_MAPPING
+    text = "[FILES]\n"
+    text += f"WEST_CSV = {west}\n"
+    text += f"EAST_CSV = {east}\n"
+    text += f"INPUT_XLSX = {input_xlsx}\n\n"
+    text += "[CSV]\n"
+    text += f"KEY_COLUMN = {csv_key_column}\n\n"
+    text += "[EXCEL]\n"
+    text += f"SHEET = {sheet}\n"
+    text += f"KEY_COLUMN = {key_column}\n"
+    text += f"HEADER_ROW = {header_row}\n"
+    text += f"OUTPUT_PREFIX = {output_prefix}\n"
+    text += f"PASSWORD = {password}\n\n"
+    text += "[転記_MAPPING]\n"
+    for src_col, dst_col in mapping.items():
+        text += f"{src_col} = {dst_col}\n"
+
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(text, encoding="utf-8")
+    return config_path
 
 
 # ── 西と東のマージ結果が転記に反映される（test_csv_lookup / test_excel_writer の合流観点） ──
 
 
 def test_run_creates_final_file_and_deletes_source_files(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, restore_config_singleton
 ) -> None:
     west = make_csv(
         tmp_path / "west.csv",
@@ -56,8 +85,10 @@ def test_run_creates_final_file_and_deletes_source_files(
     )
     expected_output = tmp_path / "最終_作業対象.xlsx"
 
-    settings = _build_settings(west, east, input_xlsx)
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config_path = _write_config(
+        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
+    )
+    config.read(config_path)
 
     result = run()
 
@@ -72,7 +103,7 @@ def test_run_creates_final_file_and_deletes_source_files(
 
 
 def test_run_writes_transferred_values_into_output_book(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, restore_config_singleton
 ) -> None:
     """転記結果が workbook のセルに実際に書き込まれていること（値レベルの検証）。"""
     west = make_csv(
@@ -90,8 +121,10 @@ def test_run_writes_transferred_values_into_output_book(
         [("C003", "", "", "")],
     )
 
-    settings = _build_settings(west, east, input_xlsx)
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config_path = _write_config(
+        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
+    )
+    config.read(config_path)
 
     run()
 
@@ -106,7 +139,7 @@ def test_run_writes_transferred_values_into_output_book(
 
 
 def test_run_skips_rows_whose_key_is_not_in_lookup(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, restore_config_singleton
 ) -> None:
     """lookup に無いキー（UNKNOWN）はスキップされ、既存のセルはそのまま。"""
     west = make_csv(
@@ -124,8 +157,10 @@ def test_run_skips_rows_whose_key_is_not_in_lookup(
         [("C001", "", "", ""), ("UNKNOWN", "", "", "")],
     )
 
-    settings = _build_settings(west, east, input_xlsx)
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config_path = _write_config(
+        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
+    )
+    config.read(config_path)
 
     result = run()
 
@@ -144,7 +179,7 @@ def test_run_skips_rows_whose_key_is_not_in_lookup(
 
 
 def test_run_with_blank_password_saves_via_openpyxl_and_keeps_output(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, monkeypatch, restore_config_singleton
 ) -> None:
     """パスワード空欄は openpyxl の経路で最終ファイルが生成される。"""
     west = make_csv(
@@ -161,19 +196,15 @@ def test_run_with_blank_password_saves_via_openpyxl_and_keeps_output(
         tmp_path / "作業対象.xlsx",
         [("C001", ""), ("C002", "")],
     )
-    settings = Settings(
-        west_csv_path=west,
-        east_csv_path=east,
-        input_xlsx_path=input_xlsx,
-        csv_key_column="お客様ID",
-        excel_sheet="Sheet1",
-        excel_key_column="業務用ID",
-        excel_header_row=1,
-        mapping={"お名前": "氏名"},  # lookup 側に存在する列のみでマッピング
-        output_prefix="最終_",
-        password="",
+    config_path = _write_config(
+        tmp_path,
+        west=str(west),
+        east=str(east),
+        input_xlsx=str(input_xlsx),
+        # lookup 側に存在する列のみでマッピング
+        mapping={"お名前": "氏名"},
     )
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config.read(config_path)
 
     real_save_calls: list[dict[str, str]] = []
 
@@ -191,7 +222,7 @@ def test_run_with_blank_password_saves_via_openpyxl_and_keeps_output(
 
 
 def test_run_with_password_forwards_read_pw_to_save(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, monkeypatch, restore_config_singleton
 ) -> None:
     """パスワード付き経路では read_pw が ExcelWriter.save() まで確実に渡される。
 
@@ -213,19 +244,15 @@ def test_run_with_password_forwards_read_pw_to_save(
         tmp_path / "作業対象.xlsx",
         [("C001", "")],
     )
-    settings = Settings(
-        west_csv_path=west,
-        east_csv_path=east,
-        input_xlsx_path=input_xlsx,
-        csv_key_column="お客様ID",
-        excel_sheet="Sheet1",
-        excel_key_column="業務用ID",
-        excel_header_row=1,
-        mapping={"お名前": "氏名"},
-        output_prefix="最終_",
+    config_path = _write_config(
+        tmp_path,
+        west=str(west),
+        east=str(east),
+        input_xlsx=str(input_xlsx),
         password="dummy-pw",
+        mapping={"お名前": "氏名"},
     )
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config.read(config_path)
 
     real_save_calls: list[dict[str, str]] = []
 
@@ -250,7 +277,7 @@ def test_run_with_password_forwards_read_pw_to_save(
 
 
 def test_run_raises_csv_row_duplicate_key_error_when_same_id_appears_in_both(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, restore_config_singleton
 ) -> None:
     west = make_csv(
         tmp_path / "west.csv",
@@ -267,8 +294,10 @@ def test_run_raises_csv_row_duplicate_key_error_when_same_id_appears_in_both(
         [("X1", "", "", "")],
     )
 
-    settings = _build_settings(west, east, input_xlsx)
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config_path = _write_config(
+        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
+    )
+    config.read(config_path)
 
     # comken の CsvRowDuplicateKeyError で停止（index_files が直接投げる）
     with pytest.raises(CsvRowDuplicateKeyError):
@@ -282,7 +311,7 @@ def test_run_raises_csv_row_duplicate_key_error_when_same_id_appears_in_both(
 
 
 def test_run_raises_csv_row_duplicate_key_error_with_multiple_duplicates(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, restore_config_singleton
 ) -> None:
     """複数キーが両方にまたがっていても comken 側で止まること。"""
     west = make_csv(
@@ -300,8 +329,10 @@ def test_run_raises_csv_row_duplicate_key_error_with_multiple_duplicates(
         [("A1", "", "", "")],
     )
 
-    settings = _build_settings(west, east, input_xlsx)
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config_path = _write_config(
+        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
+    )
+    config.read(config_path)
 
     with pytest.raises(CsvRowDuplicateKeyError):
         run()
@@ -311,7 +342,7 @@ def test_run_raises_csv_row_duplicate_key_error_with_multiple_duplicates(
 
 
 def test_run_raises_file_deletion_error_when_cleanup_partially_fails(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, monkeypatch, restore_config_singleton
 ) -> None:
     """comken の delete_files を模倣: 1つ目成功・2つ目失敗・3つ目成功 → east だけ .remaining。"""
     from comken.exceptions import FileDeletionError as _FileDeletionError
@@ -330,8 +361,10 @@ def test_run_raises_file_deletion_error_when_cleanup_partially_fails(
         tmp_path / "作業対象.xlsx",
         [("C001", "", "", ""), ("C002", "", "", "")],
     )
-    settings = _build_settings(west, east, input_xlsx)
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config_path = _write_config(
+        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
+    )
+    config.read(config_path)
 
     real_calls: list[Path] = []
 
@@ -365,7 +398,7 @@ def test_run_raises_file_deletion_error_when_cleanup_partially_fails(
 
 
 def test_run_raises_file_deletion_error_when_all_deletions_fail(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, monkeypatch, restore_config_singleton
 ) -> None:
     """3つとも消せないとき、全パスが残る（次回古いCSVを拾う事故を防ぐ）。"""
     from comken.exceptions import FileDeletionError as _FileDeletionError
@@ -384,8 +417,10 @@ def test_run_raises_file_deletion_error_when_all_deletions_fail(
         tmp_path / "作業対象.xlsx",
         [("C001", "", "", ""), ("C002", "", "", "")],
     )
-    settings = _build_settings(west, east, input_xlsx)
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config_path = _write_config(
+        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
+    )
+    config.read(config_path)
 
     def _always_fail(paths, missing_ok: bool = True) -> None:
         raise _FileDeletionError(list(paths))
@@ -403,7 +438,7 @@ def test_run_raises_file_deletion_error_when_all_deletions_fail(
 
 
 def test_run_dry_run_does_not_create_or_delete_any_files(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, restore_config_singleton
 ) -> None:
     west = make_csv(
         tmp_path / "west.csv",
@@ -421,8 +456,10 @@ def test_run_dry_run_does_not_create_or_delete_any_files(
     )
     expected_output = tmp_path / "最終_作業対象.xlsx"
 
-    settings = _build_settings(west, east, input_xlsx)
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config_path = _write_config(
+        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
+    )
+    config.read(config_path)
 
     with dry_run():
         run()
@@ -435,7 +472,7 @@ def test_run_dry_run_does_not_create_or_delete_any_files(
 
 
 def test_run_dry_run_with_password_does_not_create_or_delete_any_files(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, restore_config_singleton
 ) -> None:
     """dry-run でパスワード付き経路を動かしても、COM を起動せずファイルが増減しない。"""
     west = make_csv(
@@ -453,19 +490,14 @@ def test_run_dry_run_with_password_does_not_create_or_delete_any_files(
         [("C001", "", "", ""), ("C002", "", "", "")],
     )
 
-    settings = Settings(
-        west_csv_path=west,
-        east_csv_path=east,
-        input_xlsx_path=input_xlsx,
-        csv_key_column="お客様ID",
-        excel_sheet="Sheet1",
-        excel_key_column="業務用ID",
-        excel_header_row=1,
-        mapping=SAMPLE_MAPPING,
-        output_prefix="最終_",
+    config_path = _write_config(
+        tmp_path,
+        west=str(west),
+        east=str(east),
+        input_xlsx=str(input_xlsx),
         password="dummy-pw",
     )
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config.read(config_path)
 
     with dry_run():
         run()
@@ -478,7 +510,7 @@ def test_run_dry_run_with_password_does_not_create_or_delete_any_files(
 
 
 def test_run_does_not_delete_when_transfer_fails(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, restore_config_singleton
 ) -> None:
     """転記中に失敗したら、元ファイルは消さない（再実行できるようにする）。"""
     west = make_csv(
@@ -497,20 +529,14 @@ def test_run_does_not_delete_when_transfer_fails(
         [("C001", "", "", "")],
     )
 
-    bad_mapping = {"お名前": "存在しない列"}
-    settings = Settings(
-        west_csv_path=west,
-        east_csv_path=east,
-        input_xlsx_path=input_xlsx,
-        csv_key_column="お客様ID",
-        excel_sheet="Sheet1",
-        excel_key_column="業務用ID",
-        excel_header_row=1,
-        mapping=bad_mapping,
-        output_prefix="最終_",
-        password="",
+    config_path = _write_config(
+        tmp_path,
+        west=str(west),
+        east=str(east),
+        input_xlsx=str(input_xlsx),
+        mapping={"お名前": "存在しない列"},
     )
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config.read(config_path)
 
     with pytest.raises(TransferDestinationColumnNotFoundError):
         run()
@@ -526,7 +552,7 @@ def test_run_does_not_delete_when_transfer_fails(
 
 
 def test_run_excel_save_propagates_save_not_completed_error(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch
+    tmp_path: Path, make_csv, make_input_book, monkeypatch, restore_config_singleton
 ) -> None:
     """comken の save() が「保存成功後にファイルが無い」と判断した場合、
     ExcelSaveNotCompletedError が伝搬して run() 全体が止まり、元ファイルは残る。"""
@@ -547,8 +573,10 @@ def test_run_excel_save_propagates_save_not_completed_error(
         [("C001", "", "", "")],
     )
 
-    settings = _build_settings(west, east, input_xlsx)
-    monkeypatch.setattr("src.run.load_settings", lambda: settings)
+    config_path = _write_config(
+        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
+    )
+    config.read(config_path)
 
     def _fake_save_raises(self, path=None, read_pw: str = "", write_pw: str = ""):
         # 実ファイルを作らず、comken と同じ ExcelSaveNotCompletedError を投げる
@@ -567,3 +595,4 @@ def test_run_excel_save_propagates_save_not_completed_error(
 
 # patch は一部テストで import 警告を避けるため
 _ = patch  # noqa: F401
+
