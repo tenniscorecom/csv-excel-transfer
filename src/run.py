@@ -63,7 +63,7 @@ def run() -> TransferResult:
     # 文字列比較だと `.\` や大文字小文字の違い、相対パスの `./` 等で擦り抜けるので、
     # 解決後のパスで判定する。空の OUTPUT_PREFIX や、
     # `Path("a/b") == Path("A/b")` のような比較で検出できないケースをここで止める。
-    if output_path == settings.input_xlsx_path:
+    if output_path.resolve() == settings.input_xlsx_path.resolve():
         raise InputEqualsOutputError(settings.input_xlsx_path, output_path)
 
     lookup = merge_lookups(

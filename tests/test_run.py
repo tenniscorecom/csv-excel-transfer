@@ -103,18 +103,21 @@ def test_run_rejects_output_that_resolves_to_input_path(
 ) -> None:
     """出力先が INPUT と別文字列でも、Path.resolve() で同じ場所を指すなら止める。
 
-    config.ini で ``INPUT_XLSX = .\\作業対象.xlsx`` と書かれていて OUTPUT_PREFIX が
-    空欄だと、組み立てた出力パスは ``作業対象.xlsx``（先頭の ``./`` が消える）となり
-    文字列としては違うが resolve() で同じ場所に解決される。文字列比較だけだと
-    ``./`` の有無で擦り抜けるので、resolve() で確実に止める。
+    config.ini で ``INPUT_XLSX = dummy/../作業対象.xlsx`` のように ``..`` を含む
+    相対パスが書かれていて OUTPUT_PREFIX が空欄だと、組み立てた出力パスは
+    ``dummy/作業対象.xlsx`` になり、文字列としては違うが resolve() で同じ場所に
+    解決される。文字列比較だけだと ``..`` の有無で擦り抜けるので、resolve() で
+    確実に止める。
     """
+    sub = tmp_path / "dummy"
+    sub.mkdir()
     west = make_csv(
-        tmp_path / "west.csv",
+        sub / "west.csv",
         ["お客様ID", "お名前"],
         [("C001", "山田一郎")],
     )
     east = make_csv(
-        tmp_path / "east.csv",
+        sub / "east.csv",
         ["お客様ID", "お名前"],
         [("C002", "鈴木三郎")],
     )
@@ -122,11 +125,11 @@ def test_run_rejects_output_that_resolves_to_input_path(
         tmp_path / "作業対象.xlsx",
         [("C001", "", "", "")],
     )
-    # 入力ファイルのパスを "./作業対象.xlsx" 形式で参照させる（組み立て側と文字列が違う）
+    # INPUT を "dummy/../作業対象.xlsx" 形式で参照させる（組み立て側と文字列が違う）
     settings = Settings(
         west_csv_path=west,
         east_csv_path=east,
-        input_xlsx_path=Path("./作業対象.xlsx"),
+        input_xlsx_path=Path("dummy/../作業対象.xlsx"),
         layout=SourceLayout(
             csv_key_column="お客様ID",
             excel_sheet="Sheet1",
@@ -137,7 +140,6 @@ def test_run_rejects_output_that_resolves_to_input_path(
         output_prefix="",
         password="",
     )
-    # chdir しないと相対パスが解決できないので tmp_path へ移動
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("src.run.load_settings", lambda: settings)
 
