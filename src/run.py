@@ -54,8 +54,8 @@ def run() -> TransferResult:
         config.CSV.KEY_COLUMN,
     )
 
-    # lookup の特定列が指定値のとき、その行を転記対象から外す。
-    # SKIP_COLUMN と SKIP_VALUES はどちらも設定が無ければスキップしない。
+    # 転記から外したい行があれば lookup 自体を絞り込んでおく。
+    # SKIP_COLUMN と SKIP_VALUES はどちらも設定が無ければ何もしない。
     try:
         skip_column = config.text("EXCEL.SKIP_COLUMN", allow_empty=True)
     except ConfigKeyNotFoundError:
@@ -66,12 +66,11 @@ def run() -> TransferResult:
         skip_values_str = ""
     if skip_column and skip_values_str:
         skip_values = {value.strip() for value in skip_values_str.split(",") if value.strip()}
-        skip_set = skip_values
-
-        def skip_if(row: dict[str, object]) -> bool:
-            return str(row.get(skip_column, "")) in skip_set
-    else:
-        skip_if = None
+        lookup = {
+            key: row
+            for key, row in lookup.items()
+            if str(row.get(skip_column, "")) not in skip_values
+        }
 
     # ブックを開く → シートを取って転記 → 保存（パスワード有無は ExcelWriter に任せる）
     # save() の read_pw="" はパスワード無し経路。分岐・dry-run・保存後の存在確認は comken 側で行う
@@ -82,7 +81,6 @@ def run() -> TransferResult:
             lookup=lookup,
             mapping=config.mapping("転記_MAPPING"),
             header_row=config.int_value("EXCEL.HEADER_ROW", minimum=1),
-            skip_if=skip_if,
         )
         writer.save(path=output_path, read_pw=str(config.EXCEL.PASSWORD))
 
