@@ -10,18 +10,12 @@ import pytest
 from openpyxl import Workbook
 
 INPUT_HEADERS = ["業務用ID", "氏名", "住所", "電話番号"]
-KEY_COLUMN = "業務用ID"
 SHEET = "Sheet1"
 SAMPLE_MAPPING = {
     "お名前": "氏名",
     "ご住所": "住所",
     "電話番号": "電話番号",
 }
-
-
-@pytest.fixture
-def input_headers() -> list[str]:
-    return list(INPUT_HEADERS)
 
 
 @pytest.fixture

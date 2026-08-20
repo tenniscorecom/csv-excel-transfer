@@ -6,7 +6,7 @@ rem ƒXƒPƒWƒ…[ƒ‰‚â RPA ‚ª¬”Û‚ð”»’f‚Å‚«‚éipause ‚ð“ü‚ê‚Ä‚¢‚È‚¢‚Ì‚ÍA–³lŽÀs‚ÅŽ
 rem comken ‚ð•Ê‚ÌêŠ‚ÖˆÚ‚µ‚½‚Æ‚«‚ÍA‚±‚±‚ð’¼‚µ‚Ä‚­‚¾‚³‚¢B
 
 rem comken ‚ÌêŠBPC ‚ÉP‹v“o˜^‚µ‚Ä‚¢‚È‚¢ê‡‚¾‚¯A‚±‚±‚ªŽg‚í‚ê‚é
-set "PYTHON_LIBRARY=F:\dev\original_libs"
+set "PYTHON_LIBRARY=F:\dev\comken"
 
 rem ‹¤—LƒtƒHƒ‹ƒ_i\\ƒT[ƒo[–¼\...j‚©‚ç‹N“®‚³‚ê‚Ä‚à“®‚­‚æ‚¤ pushd ‚ðŽg‚¤icd ‚Í UNC •s‰Âj
 pushd "%~dp0" || (
@@ -36,8 +36,6 @@ if not exist "%PYTHON_LIBRARY%\comken\__init__.py" (
   echo.
   echo   - ‹¤—LƒT[ƒo[‚É‚Â‚È‚ª‚Á‚Ä‚¢‚é‚©Šm”F‚µ‚Ä‚­‚¾‚³‚¢
   echo   - ‚Â‚È‚ª‚Á‚Ä‚¢‚é‚È‚çA‚±‚Ì bat ‚Ì PYTHON_LIBRARY ‚ª³‚µ‚¢‚©Šm”F‚µ‚Ä‚­‚¾‚³‚¢
-  echo   - ‚±‚Ìƒpƒ\ƒRƒ“‚Å‰½“x‚àŽg‚¤‚È‚çAcomken ‚ÌƒtƒHƒ‹ƒ_‚É‚ ‚é
-  echo     setup_comken.bat ‚ð1‰ñŽÀs‚µ‚Ä‚¨‚­‚ÆAˆÈŒã‚±‚Ì bat ‚ð’¼‚³‚¸‚ÉÏ‚Ý‚Ü‚·
   popd
   exit /b 1
 )
