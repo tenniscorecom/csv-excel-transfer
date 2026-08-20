@@ -17,7 +17,7 @@ from comken.exceptions import (
 from comken.exceptions.table import TransferMappingError
 from comken.toolbox import Transfer
 from comken.toolbox.csv import CsvReader
-from comken.toolbox.excel import ExcelReader, ExcelWriter
+from comken.toolbox.excel import ExcelWriter
 
 CSV_KEY_COLUMN = "お客様ID"
 EXCEL_KEY_COLUMN = "業務用ID"
@@ -106,8 +106,9 @@ def run(settings: Config | None = None) -> TransferResult:
     lookup = _merge_csv((west_csv, east_csv), source_columns)
 
     matched_rows = 0
-    with ExcelReader(input_excel) as reader:
-        input_rows = reader.read_rows_as_dicts(SHEET_NAME, HEADER_ROW)
+    with ExcelWriter(input_excel) as source_book:
+        source_sheet = source_book.sheet(SHEET_NAME)
+        input_rows = source_sheet.read_rows_as_dicts(HEADER_ROW)
         if not input_rows:
             raise InputExcelNoDataError(input_excel)
         headers = list(input_rows[0])
@@ -122,27 +123,26 @@ def run(settings: Config | None = None) -> TransferResult:
             raise TransferSourceColumnNotFoundError(missing_csv, existing_csv)
 
         identity_mapping = {header: header for header in headers}
-        with ExcelWriter.create(output_excel, sheet_name=SHEET_NAME) as writer:
+        with ExcelWriter.create(output_excel, sheet_name=SHEET_NAME) as destination_book:
+            destination_sheet = destination_book.sheet(SHEET_NAME)
             transfer = Transfer(
-                reader,
-                writer,
+                source_sheet,
+                destination_sheet,
                 identity_mapping,
-                source_sheet=SHEET_NAME,
-                destination_sheet=SHEET_NAME,
             )
 
-            def transform(row: dict[str, object]) -> dict[str, object]:
+            def transform(source: dict[str, object]) -> dict[str, object]:
                 nonlocal matched_rows
-                customer = lookup.get(str(row.get(EXCEL_KEY_COLUMN, "")))
+                customer = lookup.get(str(source.get(EXCEL_KEY_COLUMN, "")))
                 if customer is None:
-                    return row
+                    return source
                 matched_rows += 1
                 for source_column, destination_column in configured_mapping.items():
-                    row[destination_column] = customer[source_column]
-                return row
+                    source[destination_column] = customer[source_column]
+                return source
 
             transfer.run(transform=transform)
-            writer.save(
+            destination_book.save(
                 output_excel,
                 read_pw=str(actual_settings.EXCEL.READ_PASSWORD),
                 write_pw=str(actual_settings.EXCEL.WRITE_PASSWORD),

@@ -6,3 +6,7 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]  # E=style, F=pyflakes, W=warning, I=import order
 ignore = []
+
+[tool.pyright]
+# 開発時は隣接するcomkenリポジトリを直接参照する。実行環境ではPYTHON_LIBRARYを使う。
+extraPaths = ["../comken"]
