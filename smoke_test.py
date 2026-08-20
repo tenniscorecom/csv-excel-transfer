@@ -2,6 +2,7 @@
 
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from comken import Config, dry_run
 from openpyxl import Workbook, load_workbook
@@ -50,6 +51,21 @@ def main() -> None:
         with dry_run():
             result = run(settings)
         assert not result.output_path.exists()
+
+    with tempfile.TemporaryDirectory(prefix="csv_excel_transfer_password_") as directory:
+        root = Path(directory)
+        settings = _prepare(root)
+        settings.EXCEL.READ_PASSWORD = "read-password"
+        settings.EXCEL.WRITE_PASSWORD = "write-password"
+        with patch("src.run.ExcelWriter.save", autospec=True) as save:
+            result = run(settings)
+        assert save.call_count == 1
+        _, saved_path = save.call_args.args
+        assert saved_path == result.output_path
+        assert save.call_args.kwargs == {
+            "read_pw": "read-password",
+            "write_pw": "write-password",
+        }
 
 
 if __name__ == "__main__":

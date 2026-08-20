@@ -134,15 +134,17 @@ def run(settings: Config | None = None) -> TransferResult:
                 identity_mapping,
             )
 
-            def transform(source: dict[str, object]) -> dict[str, object]:
+            def transform(
+                source_row: dict[str, object],
+                destination_row: dict[str, object] | None,
+            ) -> None:
                 nonlocal matched_rows
-                customer = lookup.get(str(source.get(EXCEL_KEY_COLUMN, "")))
+                customer = lookup.get(str(source_row.get(EXCEL_KEY_COLUMN, "")))
                 if customer is None:
-                    return source
+                    return
                 matched_rows += 1
                 for source_column, destination_column in configured_mapping.items():
-                    source[destination_column] = customer[source_column]
-                return source
+                    source_row[destination_column] = customer[source_column]
 
             transfer.run(transform=transform)
             destination_book.save(
