@@ -25,6 +25,7 @@ def make_input_book():
     def _make(path: Path, rows: Iterable[Iterable[object]]) -> Path:
         workbook = Workbook()
         worksheet = workbook.active
+        assert worksheet is not None
         worksheet.title = SHEET
         worksheet.append(INPUT_HEADERS)
         for row in rows:

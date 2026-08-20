@@ -6,6 +6,3 @@
 #（README「プロジェクトの準備」）。ここに書くと pip install -r が失敗するので入れない。
 openpyxl
 pywin32
-
-# 使う機能に応じて追加する（使わないものは消す）
-# selenium            # ブラウザ操作

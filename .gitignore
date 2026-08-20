@@ -6,6 +6,8 @@ state.ini
 # Python
 __pycache__/
 .pytest_cache/
+.pytest-tmp*/
+.pytest-transfer*/
 .ruff_cache/
 *.pyc
 *.pyo

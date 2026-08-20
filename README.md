@@ -1,51 +1,29 @@
-# 顧客情報転記
+# csv-excel-transfer
 
-西日本の顧客CSVと東日本の顧客CSVを **1つの lookup** にマージし、INPUT エクセルの
-「業務用ID」列をキーに顧客情報（お名前・ご住所・電話番号 等）を転記する業務ツールです。
-転記後の最終ファイルは **元と同じフォルダへ「最終_ + 元のファイル名」で保存**し、
-保存が成功したら元の3ファイル（西CSV・東CSV・INPUT エクセル）を削除します。
-パスワード付き保存にも対応（指定があれば、Excel がインストールされた PC で動作）。
+西日本・東日本の顧客 CSV を統合し、INPUT Excel の「業務用ID」に一致する顧客情報を
+転記する業務ツールです。出力保存が成功した場合だけ、元の CSV 2 ファイルと Excel を
+削除します。
 
-comken（社内共通ライブラリ）を使った業務自動化ツールです。
+## 設定
 
----
+- `[FILES]`: `OUTPUT_EXCEL_FOLDER`、`INPUT_EXCEL_FOLDER`、`INPUT_CSV_FOLDER`
+- `[EXCEL]`: `INPUT_NAME`、`OUTPUT_PREFIX`、`READ_PASSWORD`、`WRITE_PASSWORD`
+- `[CSV]`: `WEST`、`EAST`
+- `[TRANSFER_MAPPING]`: CSV 列名 = Excel 列名
 
-## ドキュメント（読む人で分かれています）
+`WEST` / `EAST` は `INPUT_CSV_FOLDER` 配下、`INPUT_NAME` は
+`INPUT_EXCEL_FOLDER` 配下のファイル名です。出力先は
+`OUTPUT_EXCEL_FOLDER / (OUTPUT_PREFIX + INPUT_NAME)` です。
 
-| 読む人 | ファイル |
-|---|---|
-| 実行する人（毎日使う） | [docs/使い方.md](docs/使い方.md) |
-| 保守する人（中身を直す） | [docs/仕様書.md](docs/仕様書.md) |
-| エラーが出た人 | [docs/ERRORS.md](docs/ERRORS.md) |
-
----
-
-## セットアップ（初回だけ）
-
-1. `実行.bat` を1度動かす（または `python main.py`）。`config.ini.example` から `config.ini` が作られるので、値を書き換える
-
-comken の場所（`PYTHON_LIBRARY`）は作成時に入っているので、通常は触らなくてよい。
-comken を別の場所へ移したときだけ、`実行.bat` を直す。
-
-## 実行
-
-**人が手で動かすとき**は、ターミナルで `実行.bat` を叩く（または `python main.py`）。
-`実行.bat` には `pause` を入れていないので、画面は一瞬で閉じる。
-
-**社内 RPA 基盤から動かすとき**は `実行.bat` を絶対パスで起動する形と、`python <このフォルダ>\main.py` を直接呼ぶ形の
-どちらも使える。`実行.bat` は終了コードをそのまま返すので、成否を判断できる
-（`pause` を入れないのは、無人実行で止まらないようにするため）。
-
-## テスト
+## 実行と検証
 
 ```powershell
-# リント + フォーマット
+実行.bat
 python -m ruff check .
 python -m ruff format --check .
-
-# 自動テスト
-python -m pytest tests/
-
-# 一時フォルダでの実走行確認（パスワード付き経路は Excel が入っている PC でのみ完全動作）
+python -m pytest tests
 python smoke_test.py
 ```
+
+詳細は [使い方](docs/使い方.md)、[仕様書](docs/仕様書.md)、
+[エラー対応](docs/ERRORS.md) を参照してください。

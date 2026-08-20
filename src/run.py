@@ -1,94 +1,155 @@
-"""src/run.py — 処理の本体
+"""csv-excel-transfer の業務フロー。"""
 
-業務の流れ:
-    1. 西CSV・東CSVを index_files() で1つの lookup 辞書にマージする
-    2. INPUT エクセルの「業務用ID」列をキーに、lookup の値で転記する
-    3. パスワード付き（指定があれば）で「最終_ + 元のファイル名」へ保存する
-       （最終ファイルの存在確認は comken の save() が自分で行う）
-    4. すべて成功したら、西CSV・東CSV・INPUT エクセル（元ファイル）を削除する
-       途中で失敗したら元ファイルは消さない（消えると再実行が効かなくなる）
-
-設定の読み取りは `comken.config` を直接使う。
-main.py で `config.require(...)` が必須項目をまとめて確かめたあと、
-ここでは型変換つきのアクセサで値を取り出す。
-
-設計判断とルールの理由は docs/仕様書.md を参照。
-"""
-
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
-from comken import config
+from comken import Config
 from comken.core import delete_files
-from comken.exceptions import ConfigKeyNotFoundError
-from comken.toolbox.csv import index_files
-from comken.toolbox.excel import ExcelWriter
+from comken.exceptions import (
+    ComkenError,
+    CsvNoDataRowsError,
+    CsvRowDuplicateKeyError,
+    ExcelColumnNotFoundError,
+    TransferSourceColumnNotFoundError,
+)
+from comken.exceptions.table import TransferMappingError
+from comken.toolbox import Transfer
+from comken.toolbox.csv import CsvReader
+from comken.toolbox.excel import ExcelReader, ExcelWriter
+
+CSV_KEY_COLUMN = "お客様ID"
+EXCEL_KEY_COLUMN = "業務用ID"
+SHEET_NAME = "Sheet1"
+HEADER_ROW = 1
+
+
+class InputExcelNoDataError(ComkenError):
+    """入力 Excel に転記対象のデータ行がない。"""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(f"INPUT Excel にデータ行がありません: {path}")
 
 
 @dataclass(frozen=True)
 class TransferResult:
-    """1回の実行で何が起きたかを返す箱。"""
+    """1回の実行結果。"""
 
     output_path: Path
     matched_rows: int
 
 
-def run() -> TransferResult:
-    """config.ini の設定を読んで INPUT エクセルへ転記し、元ファイルを片付ける。
+def validate_config(settings: Config) -> None:
+    """必須設定を処理開始前にすべて参照して検証する。"""
+    settings.FILES.OUTPUT_EXCEL_FOLDER
+    settings.FILES.INPUT_EXCEL_FOLDER
+    settings.FILES.INPUT_CSV_FOLDER
+    settings.EXCEL.INPUT_NAME
+    settings.EXCEL.OUTPUT_PREFIX
+    settings.EXCEL.READ_PASSWORD
+    settings.EXCEL.WRITE_PASSWORD
+    settings.CSV.WEST
+    settings.CSV.EAST
+    if not settings.TRANSFER_MAPPING:
+        raise TransferMappingError
 
-    Returns:
-        TransferResult: 出力パスと転記件数を返す。
 
-    Raises:
-        comken.exceptions.ComkenError: 設定不備・CSV の重複キー・保存や削除の失敗など。
-            個別の例外と対処は docs/ERRORS.md を参照。
-    """
-    # 出力パスは config.text("EXCEL.OUTPUT_PREFIX") が空欄を弾くため、
-    # 接頭辞は必ず1文字以上で、出力ファイル名は入力と必ず別名になる
-    output_path = config.FILES.INPUT_XLSX.parent / (
-        config.text("EXCEL.OUTPUT_PREFIX") + config.FILES.INPUT_XLSX.name
+def _paths(settings: Config) -> tuple[Path, Path, Path, Path]:
+    csv_folder = Path(settings.FILES.INPUT_CSV_FOLDER)
+    excel_folder = Path(settings.FILES.INPUT_EXCEL_FOLDER)
+    output_folder = Path(settings.FILES.OUTPUT_EXCEL_FOLDER)
+    input_name = str(settings.EXCEL.INPUT_NAME)
+    output_prefix = str(settings.EXCEL.OUTPUT_PREFIX)
+    input_excel = excel_folder / input_name
+    output_excel = output_folder / f"{output_prefix}{input_name}"
+    if input_excel.resolve() == output_excel.resolve():
+        raise ComkenError("出力先が入力 Excel と同じです。OUTPUT_PREFIX を設定してください。")
+    return (
+        csv_folder / str(settings.CSV.WEST),
+        csv_folder / str(settings.CSV.EAST),
+        input_excel,
+        output_excel,
     )
 
-    lookup = index_files(
-        [config.FILES.WEST_CSV, config.FILES.EAST_CSV],
-        config.CSV.KEY_COLUMN,
-    )
 
-    # 転記から外したい行があれば lookup 自体を絞り込んでおく。
-    # SKIP_COLUMN と SKIP_VALUES はどちらも設定が無ければ何もしない。
-    try:
-        skip_column = config.text("EXCEL.SKIP_COLUMN", allow_empty=True)
-    except ConfigKeyNotFoundError:
-        skip_column = ""
-    try:
-        skip_values_str = config.text("EXCEL.SKIP_VALUES", allow_empty=True)
-    except ConfigKeyNotFoundError:
-        skip_values_str = ""
-    if skip_column and skip_values_str:
-        skip_values = {value.strip() for value in skip_values_str.split(",") if value.strip()}
-        lookup = {
-            key: row
-            for key, row in lookup.items()
-            if str(row.get(skip_column, "")) not in skip_values
-        }
-
-    # ブックを開く → シートを取って転記 → 保存（パスワード有無は ExcelWriter に任せる）
-    # save() の read_pw="" はパスワード無し経路。分岐・dry-run・保存後の存在確認は comken 側で行う
-    with ExcelWriter(config.FILES.INPUT_XLSX) as writer:
-        sheet = writer.sheet(config.EXCEL.SHEET)
-        matched = sheet.transfer_by_mapping(
-            key_col=config.EXCEL.KEY_COLUMN,
-            lookup=lookup,
-            mapping=config.mapping("転記_MAPPING"),
-            header_row=config.int_value("EXCEL.HEADER_ROW", minimum=1),
+def _merge_csv(paths: tuple[Path, Path], source_columns: list[str]) -> dict[str, dict[str, str]]:
+    lookup: dict[str, dict[str, str]] = {}
+    duplicate_counts: dict[str, int] = {}
+    for path in paths:
+        reader = CsvReader(path)
+        rows = reader.read_rows([CSV_KEY_COLUMN, *source_columns])
+        if not rows:
+            raise CsvNoDataRowsError(path)
+        indexed = reader.index(CSV_KEY_COLUMN)
+        for key, row in indexed.items():
+            if key in lookup:
+                duplicate_counts[key] = duplicate_counts.get(key, 1) + 1
+            else:
+                lookup[key] = row
+    if duplicate_counts:
+        raise CsvRowDuplicateKeyError(
+            CSV_KEY_COLUMN,
+            duplicate_counts,
+            ", ".join(str(path) for path in paths),
         )
-        writer.save(path=output_path, read_pw=str(config.EXCEL.PASSWORD))
+    return lookup
 
-    # 最終ファイルの保存が成功した場合にだけ元ファイルを消す。途中で例外が出ると
-    # 元ファイルが残るため、再実行すれば何度でもやり直せる
-    delete_files(
-        [config.FILES.WEST_CSV, config.FILES.EAST_CSV, config.FILES.INPUT_XLSX],
-        missing_ok=True,
-    )
 
-    return TransferResult(output_path=output_path, matched_rows=matched)
+def run(settings: Config | None = None) -> TransferResult:
+    """CSV を統合して Excel へ転記し、保存成功後に入力を削除する。"""
+    actual_settings = settings or Config()
+    validate_config(actual_settings)
+    west_csv, east_csv, input_excel, output_excel = _paths(actual_settings)
+    configured_mapping = cast(Mapping[str, str], actual_settings.TRANSFER_MAPPING)
+    source_columns = list(configured_mapping)
+    lookup = _merge_csv((west_csv, east_csv), source_columns)
+
+    matched_rows = 0
+    with ExcelReader(input_excel) as reader:
+        input_rows = reader.read_rows_as_dicts(SHEET_NAME, HEADER_ROW)
+        if not input_rows:
+            raise InputExcelNoDataError(input_excel)
+        headers = list(input_rows[0])
+        required_excel = [EXCEL_KEY_COLUMN, *configured_mapping.values()]
+        missing_excel = [column for column in required_excel if column not in headers]
+        if missing_excel:
+            raise ExcelColumnNotFoundError(missing_excel)
+
+        existing_csv = list(next(iter(lookup.values())))
+        missing_csv = [column for column in source_columns if column not in existing_csv]
+        if missing_csv:
+            raise TransferSourceColumnNotFoundError(missing_csv, existing_csv)
+
+        identity_mapping = {header: header for header in headers}
+        with ExcelWriter.create(output_excel, sheet_name=SHEET_NAME) as writer:
+            transfer = Transfer(
+                reader,
+                writer,
+                identity_mapping,
+                source_sheet=SHEET_NAME,
+                destination_sheet=SHEET_NAME,
+            )
+
+            def transform(row: dict[str, object]) -> dict[str, object]:
+                nonlocal matched_rows
+                customer = lookup.get(str(row.get(EXCEL_KEY_COLUMN, "")))
+                if customer is None:
+                    return row
+                matched_rows += 1
+                for source_column, destination_column in configured_mapping.items():
+                    row[destination_column] = customer[source_column]
+                return row
+
+            transfer.run(transform=transform)
+            writer.save(
+                output_excel,
+                read_pw=str(actual_settings.EXCEL.READ_PASSWORD),
+                write_pw=str(actual_settings.EXCEL.WRITE_PASSWORD),
+            )
+
+    delete_files([west_csv, east_csv, input_excel], missing_ok=True)
+    return TransferResult(output_path=output_excel, matched_rows=matched_rows)
+
+
+__all__ = ["TransferResult", "run", "validate_config"]
