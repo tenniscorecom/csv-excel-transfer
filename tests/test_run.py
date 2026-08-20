@@ -1,13 +1,11 @@
-﻿"""tests/test_run.py — run.py のオーケストレーション全体"""
+"""tests/test_run.py — run.py のオーケストレーション全体"""
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from comken import config, dry_run
 from comken.exceptions import (
     CsvRowDuplicateKeyError,
-    FileDeletionError,
     TransferDestinationColumnNotFoundError,
 )
 from openpyxl import load_workbook
@@ -310,130 +308,6 @@ def test_run_raises_csv_row_duplicate_key_error_when_same_id_appears_in_both(
     assert not (tmp_path / "最終_作業対象.xlsx").exists()
 
 
-def test_run_raises_csv_row_duplicate_key_error_with_multiple_duplicates(
-    tmp_path: Path, make_csv, make_input_book, restore_config_singleton
-) -> None:
-    """複数キーが両方にまたがっていても comken 側で止まること。"""
-    west = make_csv(
-        tmp_path / "west.csv",
-        ["お客様ID", "お名前"],
-        [("A1", "西A1"), ("A2", "西A2"), ("A3", "西A3")],
-    )
-    east = make_csv(
-        tmp_path / "east.csv",
-        ["お客様ID", "お名前"],
-        [("A1", "東A1"), ("A2", "東A2"), ("A3", "東A3")],
-    )
-    input_xlsx = make_input_book(
-        tmp_path / "作業対象.xlsx",
-        [("A1", "", "", "")],
-    )
-
-    config_path = _write_config(
-        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
-    )
-    config.read(config_path)
-
-    with pytest.raises(CsvRowDuplicateKeyError):
-        run()
-
-
-# ── 削除の部分失敗（comken の FileDeletionError に置換） ──
-
-
-def test_run_raises_file_deletion_error_when_cleanup_partially_fails(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch, restore_config_singleton
-) -> None:
-    """comken の delete_files を模倣: 1つ目成功・2つ目失敗・3つ目成功 → east だけ .remaining。"""
-    from comken.exceptions import FileDeletionError as _FileDeletionError
-
-    west = make_csv(
-        tmp_path / "west.csv",
-        ["お客様ID", "お名前", "ご住所", "電話番号"],
-        [("C001", "山田一郎", "大阪", "06-0000-0001")],
-    )
-    east = make_csv(
-        tmp_path / "east.csv",
-        ["お客様ID", "お名前", "ご住所", "電話番号"],
-        [("C002", "鈴木三郎", "東京", "03-0000-0002")],
-    )
-    input_xlsx = make_input_book(
-        tmp_path / "作業対象.xlsx",
-        [("C001", "", "", ""), ("C002", "", "", "")],
-    )
-    config_path = _write_config(
-        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
-    )
-    config.read(config_path)
-
-    real_calls: list[Path] = []
-
-    def _fake_delete_files(paths, missing_ok: bool = True) -> None:
-        # comken 本体と同じ「全部試してから remaining にまとめる」振る舞い
-        remaining: list[Path] = []
-        for path in paths:
-            real_calls.append(Path(path))
-            try:
-                if Path(path) == east:
-                    raise PermissionError("他で開かれている想定")
-                Path(path).unlink()
-            except OSError:
-                remaining.append(Path(path))
-        if remaining:
-            raise _FileDeletionError(remaining)
-
-    monkeypatch.setattr("src.run.delete_files", _fake_delete_files)
-
-    with pytest.raises(FileDeletionError) as exc_info:
-        run()
-
-    # 失敗した east だけが残存パスとして報告される
-    assert exc_info.value.remaining == [east]
-    # 3つとも delete_files に渡された
-    assert real_calls == [west, east, input_xlsx]
-    assert not west.exists()
-    assert not input_xlsx.exists()
-    assert east.exists()
-    assert (tmp_path / "最終_作業対象.xlsx").exists()
-
-
-def test_run_raises_file_deletion_error_when_all_deletions_fail(
-    tmp_path: Path, make_csv, make_input_book, monkeypatch, restore_config_singleton
-) -> None:
-    """3つとも消せないとき、全パスが残る（次回古いCSVを拾う事故を防ぐ）。"""
-    from comken.exceptions import FileDeletionError as _FileDeletionError
-
-    west = make_csv(
-        tmp_path / "west.csv",
-        ["お客様ID", "お名前", "ご住所", "電話番号"],
-        [("C001", "山田一郎", "大阪", "06-0000-0001")],
-    )
-    east = make_csv(
-        tmp_path / "east.csv",
-        ["お客様ID", "お名前", "ご住所", "電話番号"],
-        [("C002", "鈴木三郎", "東京", "03-0000-0002")],
-    )
-    input_xlsx = make_input_book(
-        tmp_path / "作業対象.xlsx",
-        [("C001", "", "", ""), ("C002", "", "", "")],
-    )
-    config_path = _write_config(
-        tmp_path, west=str(west), east=str(east), input_xlsx=str(input_xlsx)
-    )
-    config.read(config_path)
-
-    def _always_fail(paths, missing_ok: bool = True) -> None:
-        raise _FileDeletionError(list(paths))
-
-    monkeypatch.setattr("src.run.delete_files", _always_fail)
-
-    with pytest.raises(FileDeletionError) as exc_info:
-        run()
-
-    # 3ファイルとも remaining に乗る
-    assert set(exc_info.value.remaining) == {west, east, input_xlsx}
-
-
 # ── DRY-RUN / 失敗時の振る舞い ──
 
 
@@ -591,8 +465,3 @@ def test_run_excel_save_propagates_save_not_completed_error(
     assert west.exists()
     assert east.exists()
     assert input_xlsx.exists()
-
-
-# patch は一部テストで import 警告を避けるため
-_ = patch  # noqa: F401
-

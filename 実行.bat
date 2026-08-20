@@ -3,7 +3,7 @@ setlocal
 rem このツールの起動用。ターミナルから `実行.bat` を叩くか、`python main.py` を直接実行してください。
 rem **RPA 基盤から呼び出すときの入口でもある。** 終了コードをそのまま返すので、
 rem スケジューラや RPA が成否を判断できる（pause を入れていないのは、無人実行で止まらないようにするため）。
-rem comken を別の場所へ移したときは、ここと .vscode\settings.json の両方を直してください。
+rem comken を別の場所へ移したときは、ここを直してください。
 
 rem comken の場所。PC に恒久登録していない場合だけ、ここが使われる
 set "PYTHON_LIBRARY=F:\dev\original_libs"

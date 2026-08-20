@@ -8,7 +8,7 @@
     4. すべて成功したら、西CSV・東CSV・INPUT エクセル（元ファイル）を削除する
        途中で失敗したら元ファイルは消さない（消えると再実行が効かなくなる）
 
-設定の読み取りは `comken.config` を直接使う（`src/settings.py` は廃止）。
+設定の読み取りは `comken.config` を直接使う。
 main.py で `config.require(...)` が必須項目をまとめて確かめたあと、
 ここでは型変換つきのアクセサで値を取り出す。
 
@@ -39,15 +39,8 @@ def run() -> TransferResult:
         TransferResult: 出力パスと転記件数を返す。
 
     Raises:
-        comken.exceptions.CsvRowDuplicateKeyError: 西CSVと東CSVで同じお客様IDがあった場合。
-        comken.exceptions.ConfigInvalidValueError: HEADER_ROW が1以上の整数でない、
-            OUTPUT_PREFIX が空欄の場合。
-        comken.exceptions.ExcelSaveNotCompletedError:
-            保存が失敗したのに例外が上がらないケースで、ファイルが残っていない場合。
-        comken.exceptions.FileDeletionError: 元ファイルの削除が一部でも失敗した場合。
-        FileNotFoundError: 入力ファイルが見つからない場合。
-        comken.exceptions.ExcelApplicationNotAvailableError:
-            パスワード付き保存時、この PC に Excel が入っていない場合。
+        comken.exceptions.ComkenError: 設定不備・CSV の重複キー・保存や削除の失敗など。
+            個別の例外と対処は docs/ERRORS.md を参照。
     """
     # 出力パスは config.text("EXCEL.OUTPUT_PREFIX") が空欄を弾くため、
     # 接頭辞は必ず1文字以上で、出力ファイル名は入力と必ず別名になる
@@ -80,4 +73,3 @@ def run() -> TransferResult:
     )
 
     return TransferResult(output_path=output_path, matched_rows=matched)
-
