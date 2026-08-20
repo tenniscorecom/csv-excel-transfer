@@ -27,8 +27,6 @@ if __name__ == "__main__":
         # 途中まで動いてから足りないと分かるより、動き出す前に全部まとめて出す。
         # 使う項目を増やしたらここにも足す（消しても動くが、エラーが遅くなる）
         config.require(
-            "RUN.DRY_RUN",
-            "RUN.DEBUG",
             "FILES.WEST_CSV",
             "FILES.EAST_CSV",
             "FILES.INPUT_XLSX",
@@ -47,34 +45,11 @@ if __name__ == "__main__":
             logger.error("[転記_MAPPING] セクションに転記元→転記先の対応が1行も書かれていません")
             raise SystemExit(1)
 
-        # config.ini の [RUN] DRY_RUN で切り替える。True の間は書き込み・移動・保存を
-        # せず、何をするつもりかだけログに出す。コードを触らずに試せるので、
-        # 本番前の確認を非エンジニアだけで回せる。
-        #
-        # True のまま戻し忘れると「毎日成功しているのに何も出力されない」状態になり、
-        # 終了コードも 0 なのでスケジューラからは正常に見える。気づけるように
-        # 実行のたび WARNING を出す（INFO は流し読みされるので警告にする）。
-        if config.RUN.DRY_RUN:
-            logger.warning(
-                "DRY-RUN で実行します。ファイルは書き込まれません"
-                "（本番で動かすなら config.ini の [RUN] DRY_RUN を False にする）"
-            )
-
-        # config.ini の [RUN] DEBUG で切り替える。True だと @measure を付けた
-        # メソッドの出入りを DEBUG ログへ出す。外部待ちでバッチが止まったときに
-        # True にして再実行すると、ログの末尾が「DEBUG ○○: 開始」の行で止まるので、
-        # どこで止まったかが分かる。普段は False のままでよい。
-        #
-        # True のままでも業務は正常に動く（ログが増えるだけ）ので dry-run ほど
-        # 危険ではないが、ログが膨らみ続けるので検証後は False に戻す。
-        # 戻し忘れに気づきやすいよう、True のときは INFO を1行出す。
-        if config.RUN.DEBUG:
-            logger.info(
-                "DEBUG モードで実行します。"
-                "各メソッドの開始/完了ログが出ます（検証後 False に戻してください）"
-            )
-
-        with dry_run(config.RUN.DRY_RUN), debug(config.RUN.DEBUG):
+        # dry-run / debug は `with dry_run():` / `with debug():` の context manager
+        # で囲む形のほうが、コードを読む人に「ここが境界」と一目で分かる。
+        # 本番で動かすには `with dry_run():` / `with debug():` を外すだけで
+        # True 固定になる（=実書き込み）。
+        with dry_run(), debug():
             main()
     except ComkenError as e:
         # comken のエラーはメッセージに対処法が入っている（docs/ERRORS.md も参照）
