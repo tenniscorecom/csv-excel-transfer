@@ -5,10 +5,15 @@ from unittest.mock import patch
 
 import pytest
 from comken import Config, dry_run
-from comken.exceptions import CsvNoDataRowsError, CsvRowDuplicateKeyError, ExcelColumnNotFoundError
+from comken.exceptions import (
+    ComkenError,
+    CsvNoDataRowsError,
+    CsvRowDuplicateKeyError,
+    ExcelColumnNotFoundError,
+)
 from openpyxl import load_workbook
 
-from src.run import run
+from src.run import _paths, run
 from tests.conftest import SAMPLE_MAPPING
 
 
@@ -142,3 +147,20 @@ def test_run_passes_both_passwords_to_save_without_starting_com(
         "read_pw": "read-secret",
         "write_pw": "write-secret",
     }
+
+
+def test_paths_rejects_output_that_overwrites_input_csv(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    settings.FILES.OUTPUT_EXCEL_FOLDER = settings.FILES.INPUT_CSV_FOLDER
+    settings.CSV.WEST = "最終_input.xlsx"
+
+    with pytest.raises(ComkenError):
+        _paths(settings)
+
+
+def test_paths_rejects_same_file_for_both_csv_inputs(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    settings.CSV.EAST = settings.CSV.WEST
+
+    with pytest.raises(ComkenError):
+        _paths(settings)

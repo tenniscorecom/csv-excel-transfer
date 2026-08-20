@@ -63,14 +63,17 @@ def _paths(settings: Config) -> tuple[Path, Path, Path, Path]:
     output_prefix = str(settings.EXCEL.OUTPUT_PREFIX)
     input_excel = excel_folder / input_name
     output_excel = output_folder / f"{output_prefix}{input_name}"
-    if input_excel.resolve() == output_excel.resolve():
-        raise ComkenError("出力先が入力 Excel と同じです。OUTPUT_PREFIX を設定してください。")
-    return (
-        csv_folder / str(settings.CSV.WEST),
-        csv_folder / str(settings.CSV.EAST),
-        input_excel,
-        output_excel,
-    )
+    west_csv = csv_folder / str(settings.CSV.WEST)
+    east_csv = csv_folder / str(settings.CSV.EAST)
+    input_paths = [west_csv, east_csv, input_excel]
+    resolved_inputs = [path.resolve() for path in input_paths]
+    if len(set(resolved_inputs)) != len(resolved_inputs):
+        raise ComkenError("入力 CSV 2本と入力 Excel には、それぞれ別のファイルを指定してください。")
+    if output_excel.resolve() in resolved_inputs:
+        raise ComkenError(
+            "出力先が入力ファイルと同じです。出力フォルダまたは OUTPUT_PREFIX を変更してください。"
+        )
+    return west_csv, east_csv, input_excel, output_excel
 
 
 def _merge_csv(paths: tuple[Path, Path], source_columns: list[str]) -> dict[str, dict[str, str]]:
