@@ -10,32 +10,6 @@ from openpyxl import Workbook, load_workbook
 from src.run import run
 
 
-def _prepare(root: Path) -> Config:
-    csv_folder, input_folder, output_folder = root / "csv", root / "input", root / "output"
-    csv_folder.mkdir()
-    input_folder.mkdir()
-    (csv_folder / "west.csv").write_text("お客様ID,お名前\nC001,山田一郎\n", encoding="utf-8")
-    (csv_folder / "east.csv").write_text("お客様ID,お名前\nC002,鈴木三郎\n", encoding="utf-8")
-    workbook = Workbook()
-    sheet = workbook.active
-    assert sheet is not None
-    sheet.title = "Sheet1"
-    sheet.append(["業務用ID", "氏名", "備考"])
-    sheet.append(["C001", "", "保持"])
-    workbook.save(input_folder / "input.xlsx")
-    workbook.close()
-    config_path = root / "config.ini"
-    config_path.write_text(
-        f"[FILES]\nOUTPUT_EXCEL_FOLDER = {output_folder}\n"
-        f"INPUT_EXCEL_FOLDER = {input_folder}\nINPUT_CSV_FOLDER = {csv_folder}\n\n"
-        "[EXCEL]\nINPUT_NAME = input.xlsx\nOUTPUT_PREFIX = 最終_\n"
-        "READ_PASSWORD =\nWRITE_PASSWORD =\n\n"
-        "[CSV]\nWEST = west.csv\nEAST = east.csv\n\n[TRANSFER_MAPPING]\nお名前 = 氏名\n",
-        encoding="utf-8",
-    )
-    return Config(config_path)
-
-
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="csv_excel_transfer_") as directory:
         root = Path(directory)
@@ -75,6 +49,34 @@ def main() -> None:
             "read_pw": "read-password",
             "write_pw": "write-password",
         }
+
+
+def _prepare(root: Path) -> Config:
+    csv_folder, input_folder, output_folder = root / "csv", root / "input", root / "output"
+    csv_folder.mkdir()
+    input_folder.mkdir()
+    (csv_folder / "west.csv").write_text("お客様ID,お名前\nC001,山田一郎\n", encoding="utf-8")
+    (csv_folder / "east.csv").write_text("お客様ID,お名前\nC002,鈴木三郎\n", encoding="utf-8")
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Sheet1"
+    sheet.append(["業務用ID", "氏名", "備考"])
+    sheet.append(["C001", "", "保持"])
+    workbook.save(input_folder / "input.xlsx")
+    workbook.close()
+    config_path = root / "config.ini"
+    config_path.write_text(
+        f"[FILES]\nOUTPUT_EXCEL_FOLDER = {output_folder}\n"
+        f"INPUT_EXCEL_FOLDER = {input_folder}\nINPUT_CSV_FOLDER = {csv_folder}\n\n"
+        "[EXCEL]\nINPUT_NAME = input.xlsx\nOUTPUT_PREFIX = 最終_\n"
+        "SHEET_NAME = Sheet1\nHEADER_ROW = 1\nKEY_COLUMN = 業務用ID\n"
+        "READ_PASSWORD =\nWRITE_PASSWORD =\n\n"
+        "[CSV]\nWEST = west.csv\nEAST = east.csv\nKEY_COLUMN = お客様ID\n\n"
+        "[TRANSFER_MAPPING]\nお名前 = 氏名\n",
+        encoding="utf-8",
+    )
+    return Config(config_path)
 
 
 if __name__ == "__main__":
