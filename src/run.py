@@ -25,7 +25,7 @@ def run() -> Path:
     """CSV を統合して Excel へ転記し、保存成功後に入力を削除する。"""
     west_csv, east_csv, input_excel, output_excel = _paths()
     configured_mapping = cast(Mapping[str, str], config.TRANSFER_MAPPING)
-    source_columns = list(configured_mapping)
+    source_columns = list(configured_mapping.keys())
 
     csv_key_column = config.CSV.KEY_COLUMN
     excel_key_column = config.EXCEL.KEY_COLUMN
