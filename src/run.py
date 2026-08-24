@@ -45,39 +45,27 @@ def _paths() -> tuple[Path, Path, Path, Path]:
     return west_csv, east_csv, input_excel, output_excel
 
 
-def _merge_csv(paths: tuple[Path, Path], source_columns: list[str]) -> Table:
+def _merge_csv(paths: tuple[Path, Path]) -> Table:
     """2 つの CSV を読み込み、``CSV_KEY_COLUMN`` で突合した Table を返す。
 
-    1 ファイル内の重複は ``Table.index()`` の ``TableDuplicateKeyError`` に任せる
-    （旧実装の「踏んで上書き」は採用しない）。
-    2 ファイル間の重複は ``ComkenError`` として送出する。
+    ``Table.concat()`` で縦に連結してから ``Table.index()`` を呼ぶため、
+    ファイル内の重複も 2 ファイル間の重複も同じ ``TableDuplicateKeyError`` で
+    止まる（ファイル内・ファイル間を区別しない）。西と東で列が違えば
+    ``Table.concat()`` が先に ``TableError`` で止める。
+    旧実装の「踏んで上書き」は採用しない。
     """
-    lookup: dict[str, dict[str, str]] = {}
-    duplicate_counts: dict[str, int] = {}
-    read_columns = [CSV_KEY_COLUMN, *source_columns]
-
+    tables: list[Table] = []
     for path in paths:
         with CSV(path, read_only=True) as csv_file:
             table = csv_file.read()
         if len(table) == 0:
             raise ComkenError(f"CSV にデータ行がありません: {path}")
-        indexed = table.index(CSV_KEY_COLUMN)
-        for key, row in indexed.items():
-            if key in lookup:
-                duplicate_counts[key] = duplicate_counts.get(key, 1) + 1
-            else:
-                lookup[key] = row
-    if duplicate_counts:
-        keys = ", ".join(f"{key}({count} 件)" for key, count in duplicate_counts.items())
-        raise ComkenError(
-            f"CSV のキー列「{CSV_KEY_COLUMN}」に 2 ファイル間で重複があります: {keys}\n"
-            f"対象ファイル: {', '.join(str(path) for path in paths)}"
-        )
-
-    return Table(
-        read_columns,
-        [{column: row.get(column, "") for column in read_columns} for row in lookup.values()],
-    )
+        tables.append(table)
+    merged = tables[0]
+    for table in tables[1:]:
+        merged = merged.concat(table)
+    merged.index(CSV_KEY_COLUMN)
+    return merged
 
 
 def run() -> Path:
@@ -89,7 +77,7 @@ def run() -> Path:
     read_password = str(config.EXCEL.READ_PASSWORD)
     write_password = str(config.EXCEL.WRITE_PASSWORD)
 
-    read_table = _merge_csv((west_csv, east_csv), source_columns)
+    read_table = _merge_csv((west_csv, east_csv))
 
     with Excel(input_excel, read_only=True) as source_book:
         input_rows = source_book.read_computed_rows_as_dicts(

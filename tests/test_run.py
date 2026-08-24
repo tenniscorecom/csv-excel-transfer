@@ -5,7 +5,11 @@ from unittest.mock import patch
 
 import pytest
 from comken import dry_run
-from comken.exceptions import ComkenError, ExcelColumnNotFoundError
+from comken.exceptions import (
+    ComkenError,
+    ExcelColumnNotFoundError,
+    TableDuplicateKeyError,
+)
 from openpyxl import load_workbook
 
 from src.run import _paths, run
@@ -99,7 +103,7 @@ def test_run_rejects_cross_file_duplicate(
     west, east, book = _files(tmp_path, make_csv, make_input_book)
     make_csv(east, ["お客様ID", "お名前", "ご住所", "電話番号"], [("C001", "重複", "東京", "03")])
     use_config(_write_config(tmp_path))
-    with pytest.raises(ComkenError, match="2 ファイル間で重複"):
+    with pytest.raises(TableDuplicateKeyError, match="お客様ID"):
         run()
     assert west.exists() and east.exists() and book.exists()
 
