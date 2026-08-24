@@ -1,9 +1,7 @@
 """csv-excel-transfer の業務フロー。"""
 
 import logging
-from collections.abc import Mapping
 from pathlib import Path
-from typing import cast
 
 from comken import config
 from comken.core import delete_files
@@ -24,7 +22,7 @@ logger = logging.getLogger(__name__)
 def run() -> Path:
     """CSV を統合して Excel へ転記し、保存成功後に入力を削除する。"""
     west_csv, east_csv, input_excel, output_excel = _paths()
-    configured_mapping = cast(Mapping[str, str], config.TRANSFER_MAPPING)
+    configured_mapping = config.TRANSFER_MAPPING
     source_columns = list(configured_mapping.keys())
 
     csv_key_column = config.CSV.KEY_COLUMN
