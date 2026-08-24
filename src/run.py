@@ -18,54 +18,7 @@ from comken.toolbox.csv import CSV
 from comken.toolbox.excel import Excel
 from comken.toolbox.windows import ExcelCOMHandler
 
-CSV_KEY_COLUMN = "お客様ID"
-EXCEL_KEY_COLUMN = "業務用ID"
-SHEET_NAME = "Sheet1"
-HEADER_ROW = 1
-
 logger = logging.getLogger(__name__)
-
-
-def _paths() -> tuple[Path, Path, Path, Path]:
-    csv_folder = config.FILES.INPUT_CSV_FOLDER
-    excel_folder = config.FILES.INPUT_EXCEL_FOLDER
-    output_folder = config.FILES.OUTPUT_EXCEL_FOLDER
-    input_excel = excel_folder / config.EXCEL.INPUT_NAME
-    output_excel = output_folder / f"{config.EXCEL.OUTPUT_PREFIX}{config.EXCEL.INPUT_NAME}"
-    west_csv = csv_folder / config.CSV.WEST
-    east_csv = csv_folder / config.CSV.EAST
-    input_paths = [west_csv, east_csv, input_excel]
-    resolved_inputs = [path.resolve() for path in input_paths]
-    if len(set(resolved_inputs)) != len(resolved_inputs):
-        raise ComkenError("入力 CSV 2本と入力 Excel には、それぞれ別のファイルを指定してください。")
-    if output_excel.resolve() in resolved_inputs:
-        raise ComkenError(
-            "出力先が入力ファイルと同じです。出力フォルダまたは OUTPUT_PREFIX を変更してください。"
-        )
-    return west_csv, east_csv, input_excel, output_excel
-
-
-def _merge_csv(paths: tuple[Path, Path]) -> Table:
-    """2 つの CSV を読み込み、``CSV_KEY_COLUMN`` で突合した Table を返す。
-
-    ``Table.concat()`` で縦に連結してから ``Table.index()`` を呼ぶため、
-    ファイル内の重複も 2 ファイル間の重複も同じ ``TableDuplicateKeyError`` で
-    止まる（ファイル内・ファイル間を区別しない）。西と東で列が違えば
-    ``Table.concat()`` が先に ``TableError`` で止める。
-    旧実装の「踏んで上書き」は採用しない。
-    """
-    tables: list[Table] = []
-    for path in paths:
-        with CSV(path, read_only=True) as csv_file:
-            table = csv_file.read()
-        if len(table) == 0:
-            raise ComkenError(f"CSV にデータ行がありません: {path}")
-        tables.append(table)
-    merged = tables[0]
-    for table in tables[1:]:
-        merged = merged.concat(table)
-    merged.index(CSV_KEY_COLUMN)
-    return merged
 
 
 def run() -> Path:
@@ -74,19 +27,21 @@ def run() -> Path:
     configured_mapping = cast(Mapping[str, str], config.TRANSFER_MAPPING)
     source_columns = list(configured_mapping)
 
+    csv_key_column = config.CSV.KEY_COLUMN
+    excel_key_column = config.EXCEL.KEY_COLUMN
+    sheet_name = config.EXCEL.SHEET_NAME
+    header_row = config.EXCEL.HEADER_ROW
     read_password = str(config.EXCEL.READ_PASSWORD)
     write_password = str(config.EXCEL.WRITE_PASSWORD)
 
-    read_table = _merge_csv((west_csv, east_csv))
+    read_table = _merge_csv((west_csv, east_csv), csv_key_column)
 
     with Excel(input_excel, read_only=True) as source_book:
-        input_rows = source_book.read_computed_rows_as_dicts(
-            SHEET_NAME, header_row=HEADER_ROW
-        )
+        input_rows = source_book.read_computed_rows_as_dicts(sheet_name, header_row=header_row)
         if not input_rows:
             raise ComkenError(f"INPUT Excel にデータ行がありません: {input_excel}")
         headers = list(input_rows[0])
-        required_excel = [EXCEL_KEY_COLUMN, *configured_mapping.values()]
+        required_excel = [excel_key_column, *configured_mapping.values()]
         missing_excel = [column for column in required_excel if column not in headers]
         if missing_excel:
             raise ExcelColumnNotFoundError(missing_excel)
@@ -108,8 +63,8 @@ def run() -> Path:
             read_table,
             write_table,
             configured_mapping,
-            read_key=CSV_KEY_COLUMN,
-            write_key=EXCEL_KEY_COLUMN,
+            read_key=csv_key_column,
+            write_key=excel_key_column,
         )
         matched_rows = 0
         for read_row, write_row in transfer.matched_rows():
@@ -121,7 +76,7 @@ def run() -> Path:
     column_count = len(result_table.columns)
     row_count = len(result_table) + 1  # +1 for header
     with Excel(output_excel) as destination:
-        sheet = destination.sheet(SHEET_NAME)
+        sheet = destination.sheet(sheet_name)
         if column_count > 0:
             end_column = chr(ord("A") + column_count - 1)
             values = [
@@ -139,6 +94,48 @@ def run() -> Path:
     logger.info("転記件数: %d", matched_rows)
     delete_files([west_csv, east_csv, input_excel], missing_ok=True)
     return output_excel
+
+
+def _paths() -> tuple[Path, Path, Path, Path]:
+    csv_folder = config.FILES.INPUT_CSV_FOLDER
+    excel_folder = config.FILES.INPUT_EXCEL_FOLDER
+    output_folder = config.FILES.OUTPUT_EXCEL_FOLDER
+    input_excel = excel_folder / config.EXCEL.INPUT_NAME
+    output_excel = output_folder / f"{config.EXCEL.OUTPUT_PREFIX}{config.EXCEL.INPUT_NAME}"
+    west_csv = csv_folder / config.CSV.WEST
+    east_csv = csv_folder / config.CSV.EAST
+    input_paths = [west_csv, east_csv, input_excel]
+    resolved_inputs = [path.resolve() for path in input_paths]
+    if len(set(resolved_inputs)) != len(resolved_inputs):
+        raise ComkenError("入力 CSV 2本と入力 Excel には、それぞれ別のファイルを指定してください。")
+    if output_excel.resolve() in resolved_inputs:
+        raise ComkenError(
+            "出力先が入力ファイルと同じです。出力フォルダまたは OUTPUT_PREFIX を変更してください。"
+        )
+    return west_csv, east_csv, input_excel, output_excel
+
+
+def _merge_csv(paths: tuple[Path, Path], key_column: str) -> Table:
+    """2 つの CSV を読み込み、``key_column`` で突合した Table を返す。
+
+    ``Table.concat()`` で縦に連結してから ``Table.index()`` を呼ぶため、
+    ファイル内の重複も 2 ファイル間の重複も同じ ``TableDuplicateKeyError`` で
+    止まる（ファイル内・ファイル間を区別しない）。西と東で列が違えば
+    ``Table.concat()`` が先に ``TableError`` で止める。
+    旧実装の「踏んで上書き」は採用しない。
+    """
+    tables: list[Table] = []
+    for path in paths:
+        with CSV(path, read_only=True) as csv_file:
+            table = csv_file.read()
+        if len(table) == 0:
+            raise ComkenError(f"CSV にデータ行がありません: {path}")
+        tables.append(table)
+    merged = tables[0]
+    for table in tables[1:]:
+        merged = merged.concat(table)
+    merged.index(key_column)
+    return merged
 
 
 __all__ = ["run"]

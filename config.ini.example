@@ -6,6 +6,11 @@ INPUT_CSV_FOLDER = C:\work\csv
 [EXCEL]
 INPUT_NAME = input.xlsx
 OUTPUT_PREFIX = 最終_
+; 読み書きするシートと、見出しが入っている行。
+SHEET_NAME = Sheet1
+HEADER_ROW = 1
+; CSV と突き合わせるキーの列名（Excel 側）。
+KEY_COLUMN = 業務用ID
 ; 空欄ならパスワードを設定しない。値はログへ出力しない。
 READ_PASSWORD =
 WRITE_PASSWORD =
@@ -13,6 +18,8 @@ WRITE_PASSWORD =
 [CSV]
 WEST = west.csv
 EAST = east.csv
+; Excel と突き合わせるキーの列名（CSV 側）。
+KEY_COLUMN = お客様ID
 
 [TRANSFER_MAPPING]
 お名前 = 氏名
