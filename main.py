@@ -2,18 +2,16 @@
 
 import logging
 
-from comken import Config, comken_logger, debug, dry_run
+from comken import comken_logger, debug, dry_run
 from comken.exceptions import ComkenError
 
-from src.run import run, validate_config
+from src.run import run
 
 logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    settings = Config()
-    validate_config(settings)
-    run(settings)
+    run()
 
 
 if __name__ == "__main__":

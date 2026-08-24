@@ -39,8 +39,10 @@ def _prepare(root: Path) -> Config:
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="csv_excel_transfer_") as directory:
         root = Path(directory)
-        result = run(_prepare(root))
-        workbook = load_workbook(result.output_path)
+        settings = _prepare(root)
+        with patch("src.run.config", settings):
+            output = run()
+        workbook = load_workbook(output)
         assert workbook["Sheet1"]["B2"].value == "山田一郎"
         assert workbook["Sheet1"]["C2"].value == "保持"
         workbook.close()
@@ -48,9 +50,9 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="csv_excel_transfer_dry_") as directory:
         root = Path(directory)
         settings = _prepare(root)
-        with dry_run():
-            result = run(settings)
-        assert not result.output_path.exists()
+        with patch("src.run.config", settings), dry_run():
+            output = run()
+        assert not output.exists()
 
     with tempfile.TemporaryDirectory(prefix="csv_excel_transfer_password_") as directory:
         root = Path(directory)
@@ -60,13 +62,15 @@ def main() -> None:
         # パスワード保存は COM の ExcelCOMHandler.save_as で行う。
         # COM を起動しないよう __init__ / close を no-op にして Excel プロセスを起こさず、
         # save_as だけ Mock に差し替えて呼び出し内容を検証する。
-        with patch("src.run.ExcelCOMHandler.__init__", return_value=None), patch(
-            "src.run.ExcelCOMHandler.close", return_value=None
-        ), patch("src.run.ExcelCOMHandler.save_as", autospec=True) as save:
-            result = run(settings)
+        with patch("src.run.config", settings), patch(
+            "src.run.ExcelCOMHandler.__init__", return_value=None
+        ), patch("src.run.ExcelCOMHandler.close", return_value=None), patch(
+            "src.run.ExcelCOMHandler.save_as", autospec=True
+        ) as save:
+            output = run()
         assert save.call_count == 1
         _, saved_path = save.call_args.args
-        assert saved_path == result.output_path
+        assert saved_path == output
         assert save.call_args.kwargs == {
             "read_pw": "read-password",
             "write_pw": "write-password",

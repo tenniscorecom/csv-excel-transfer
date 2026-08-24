@@ -4,22 +4,21 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from comken import Config, dry_run
+from comken import dry_run
 from comken.exceptions import ComkenError, ExcelColumnNotFoundError
 from openpyxl import load_workbook
 
-from src.exceptions import CSVNoDataRowsError, CSVRowDuplicateKeyError
 from src.run import _paths, run
 from tests.conftest import SAMPLE_MAPPING
 
 
-def _settings(
+def _write_config(
     tmp_path: Path,
     *,
     mapping: dict[str, str] | None = None,
     read_password: str = "",
     write_password: str = "",
-) -> Config:
+) -> Path:
     mapping = SAMPLE_MAPPING if mapping is None else mapping
     lines = [
         "[FILES]",
@@ -42,7 +41,7 @@ def _settings(
     ]
     config_path = tmp_path / "config.ini"
     config_path.write_text("\n".join(lines), encoding="utf-8")
-    return Config(config_path)
+    return config_path
 
 
 def _files(tmp_path: Path, make_csv, make_input_book) -> tuple[Path, Path, Path]:
@@ -64,13 +63,12 @@ def _files(tmp_path: Path, make_csv, make_input_book) -> tuple[Path, Path, Path]
 
 
 def test_run_transfers_preserves_unmatched_and_deletes_sources(
-    tmp_path: Path, make_csv, make_input_book
+    tmp_path: Path, make_csv, make_input_book, use_config
 ) -> None:
     west, east, book = _files(tmp_path, make_csv, make_input_book)
+    use_config(_write_config(tmp_path))
     output = tmp_path / "output" / "最終_input.xlsx"
-    result = run(_settings(tmp_path))
-    assert result.output_path == output
-    assert result.matched_rows == 1
+    assert run() == output
     workbook = load_workbook(output)
     rows = list(workbook["Sheet1"].values)
     workbook.close()
@@ -79,58 +77,75 @@ def test_run_transfers_preserves_unmatched_and_deletes_sources(
     assert not west.exists() and not east.exists() and not book.exists()
 
 
-def test_run_keeps_all_input_columns(tmp_path: Path, make_csv, make_input_book) -> None:
+def test_run_keeps_all_input_columns(
+    tmp_path: Path, make_csv, make_input_book, use_config
+) -> None:
     _files(tmp_path, make_csv, make_input_book)
     workbook = load_workbook(tmp_path / "input.xlsx")
     sheet = workbook["Sheet1"]
     sheet["E1"], sheet["E2"] = "備考", "残す"
     workbook.save(tmp_path / "input.xlsx")
     workbook.close()
-    run(_settings(tmp_path))
+    use_config(_write_config(tmp_path))
+    run()
     workbook = load_workbook(tmp_path / "output" / "最終_input.xlsx")
     assert workbook["Sheet1"]["E2"].value == "残す"
     workbook.close()
 
 
-def test_run_rejects_cross_file_duplicate(tmp_path: Path, make_csv, make_input_book) -> None:
+def test_run_rejects_cross_file_duplicate(
+    tmp_path: Path, make_csv, make_input_book, use_config
+) -> None:
     west, east, book = _files(tmp_path, make_csv, make_input_book)
     make_csv(east, ["お客様ID", "お名前", "ご住所", "電話番号"], [("C001", "重複", "東京", "03")])
-    with pytest.raises(CSVRowDuplicateKeyError):
-        run(_settings(tmp_path))
+    use_config(_write_config(tmp_path))
+    with pytest.raises(ComkenError, match="2 ファイル間で重複"):
+        run()
     assert west.exists() and east.exists() and book.exists()
 
 
-def test_run_rejects_empty_csv(tmp_path: Path, make_csv, make_input_book) -> None:
+def test_run_rejects_empty_csv(
+    tmp_path: Path, make_csv, make_input_book, use_config
+) -> None:
     _files(tmp_path, make_csv, make_input_book)
     make_csv(tmp_path / "east.csv", ["お客様ID", "お名前", "ご住所", "電話番号"], [])
-    with pytest.raises(CSVNoDataRowsError):
-        run(_settings(tmp_path))
+    use_config(_write_config(tmp_path))
+    with pytest.raises(ComkenError, match="データ行がありません"):
+        run()
 
 
-def test_run_rejects_missing_excel_column(tmp_path: Path, make_csv, make_input_book) -> None:
+def test_run_rejects_missing_excel_column(
+    tmp_path: Path, make_csv, make_input_book, use_config
+) -> None:
     west, east, book = _files(tmp_path, make_csv, make_input_book)
+    use_config(_write_config(tmp_path, mapping={"お名前": "存在しない列"}))
     with pytest.raises(ExcelColumnNotFoundError):
-        run(_settings(tmp_path, mapping={"お名前": "存在しない列"}))
+        run()
     assert west.exists() and east.exists() and book.exists()
 
 
-def test_run_dry_run_does_not_write_or_delete(tmp_path: Path, make_csv, make_input_book) -> None:
+def test_run_dry_run_does_not_write_or_delete(
+    tmp_path: Path, make_csv, make_input_book, use_config
+) -> None:
     west, east, book = _files(tmp_path, make_csv, make_input_book)
+    use_config(_write_config(tmp_path))
     with dry_run():
-        run(_settings(tmp_path))
+        run()
     assert west.exists() and east.exists() and book.exists()
     assert not (tmp_path / "output" / "最終_input.xlsx").exists()
 
 
 def test_run_passes_both_passwords_to_save_without_starting_com(
-    tmp_path: Path, make_csv, make_input_book
+    tmp_path: Path, make_csv, make_input_book, use_config
 ) -> None:
     _files(tmp_path, make_csv, make_input_book)
     output = tmp_path / "output" / "最終_input.xlsx"
-    settings = _settings(
-        tmp_path,
-        read_password="read-secret",
-        write_password="write-secret",
+    use_config(
+        _write_config(
+            tmp_path,
+            read_password="read-secret",
+            write_password="write-secret",
+        )
     )
 
     # パスワード保存は COM の ExcelCOMHandler.save_as で行う。
@@ -139,7 +154,7 @@ def test_run_passes_both_passwords_to_save_without_starting_com(
     with patch("src.run.ExcelCOMHandler.__init__", return_value=None), patch(
         "src.run.ExcelCOMHandler.close", return_value=None
     ), patch("src.run.ExcelCOMHandler.save_as", autospec=True) as save:
-        run(settings)
+        assert run() == output
 
     assert save.call_count == 1
     _, saved_path = save.call_args.args
@@ -150,18 +165,24 @@ def test_run_passes_both_passwords_to_save_without_starting_com(
     }
 
 
-def test_paths_rejects_output_that_overwrites_input_csv(tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
-    settings.FILES.OUTPUT_EXCEL_FOLDER = settings.FILES.INPUT_CSV_FOLDER
-    settings.CSV.WEST = "最終_input.xlsx"
+def test_paths_rejects_output_that_overwrites_input_csv(
+    tmp_path: Path, use_config
+) -> None:
+    config_path = _write_config(tmp_path)
+    test_config = use_config(config_path)
+    test_config.FILES.OUTPUT_EXCEL_FOLDER = test_config.FILES.INPUT_CSV_FOLDER
+    test_config.CSV.WEST = "最終_input.xlsx"
 
     with pytest.raises(ComkenError):
-        _paths(settings)
+        _paths()
 
 
-def test_paths_rejects_same_file_for_both_csv_inputs(tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
-    settings.CSV.EAST = settings.CSV.WEST
+def test_paths_rejects_same_file_for_both_csv_inputs(
+    tmp_path: Path, use_config
+) -> None:
+    config_path = _write_config(tmp_path)
+    test_config = use_config(config_path)
+    test_config.CSV.EAST = test_config.CSV.WEST
 
     with pytest.raises(ComkenError):
-        _paths(settings)
+        _paths()

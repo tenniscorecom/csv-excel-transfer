@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
+from comken import Config
 from openpyxl import Workbook
 
 INPUT_HEADERS = ["業務用ID", "氏名", "住所", "電話番号"]
@@ -49,3 +50,15 @@ def make_csv():
         return path
 
     return _make
+
+
+@pytest.fixture
+def use_config(monkeypatch):
+    """``src.run.config`` を指定パスの ``Config`` で差し替える。"""
+
+    def _use(path: Path) -> Config:
+        config = Config(path)
+        monkeypatch.setattr("src.run.config", config)
+        return config
+
+    return _use
