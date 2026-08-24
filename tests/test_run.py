@@ -5,14 +5,10 @@ from unittest.mock import patch
 
 import pytest
 from comken import Config, dry_run
-from comken.exceptions import (
-    ComkenError,
-    CsvNoDataRowsError,
-    CsvRowDuplicateKeyError,
-    ExcelColumnNotFoundError,
-)
+from comken.exceptions import ComkenError, ExcelColumnNotFoundError
 from openpyxl import load_workbook
 
+from src.exceptions import CSVNoDataRowsError, CSVRowDuplicateKeyError
 from src.run import _paths, run
 from tests.conftest import SAMPLE_MAPPING
 
@@ -99,7 +95,7 @@ def test_run_keeps_all_input_columns(tmp_path: Path, make_csv, make_input_book) 
 def test_run_rejects_cross_file_duplicate(tmp_path: Path, make_csv, make_input_book) -> None:
     west, east, book = _files(tmp_path, make_csv, make_input_book)
     make_csv(east, ["お客様ID", "お名前", "ご住所", "電話番号"], [("C001", "重複", "東京", "03")])
-    with pytest.raises(CsvRowDuplicateKeyError):
+    with pytest.raises(CSVRowDuplicateKeyError):
         run(_settings(tmp_path))
     assert west.exists() and east.exists() and book.exists()
 
@@ -107,7 +103,7 @@ def test_run_rejects_cross_file_duplicate(tmp_path: Path, make_csv, make_input_b
 def test_run_rejects_empty_csv(tmp_path: Path, make_csv, make_input_book) -> None:
     _files(tmp_path, make_csv, make_input_book)
     make_csv(tmp_path / "east.csv", ["お客様ID", "お名前", "ご住所", "電話番号"], [])
-    with pytest.raises(CsvNoDataRowsError):
+    with pytest.raises(CSVNoDataRowsError):
         run(_settings(tmp_path))
 
 
@@ -137,7 +133,12 @@ def test_run_passes_both_passwords_to_save_without_starting_com(
         write_password="write-secret",
     )
 
-    with patch("src.run.ExcelWriter.save", autospec=True) as save:
+    # パスワード保存は COM の ExcelCOMHandler.save_as で行う。
+    # COM を起動しないよう __init__ / close を no-op にして Excel プロセスを起こさず、
+    # save_as だけ Mock に差し替えて呼び出し内容を検証する。
+    with patch("src.run.ExcelCOMHandler.__init__", return_value=None), patch(
+        "src.run.ExcelCOMHandler.close", return_value=None
+    ), patch("src.run.ExcelCOMHandler.save_as", autospec=True) as save:
         run(settings)
 
     assert save.call_count == 1

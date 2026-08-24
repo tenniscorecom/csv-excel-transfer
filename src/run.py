@@ -7,17 +7,19 @@ from typing import cast
 
 from comken import Config
 from comken.core import delete_files
+from comken.core.table.model import Table
+from comken.core.table.transfer import Transfer
 from comken.exceptions import (
     ComkenError,
-    CsvNoDataRowsError,
-    CsvRowDuplicateKeyError,
     ExcelColumnNotFoundError,
     TransferSourceColumnNotFoundError,
 )
 from comken.exceptions.table import TransferMappingError
-from comken.toolbox import Transfer
-from comken.toolbox.csv import CsvReader
-from comken.toolbox.excel import ExcelWriter
+from comken.toolbox.csv import CSV
+from comken.toolbox.excel import Excel
+from comken.toolbox.windows import ExcelCOMHandler
+
+from src.exceptions import CSVNoDataRowsError, CSVRowDuplicateKeyError
 
 CSV_KEY_COLUMN = "お客様ID"
 EXCEL_KEY_COLUMN = "業務用ID"
@@ -76,27 +78,39 @@ def _paths(settings: Config) -> tuple[Path, Path, Path, Path]:
     return west_csv, east_csv, input_excel, output_excel
 
 
-def _merge_csv(paths: tuple[Path, Path], source_columns: list[str]) -> dict[str, dict[str, str]]:
+def _merge_csv(paths: tuple[Path, Path], source_columns: list[str]) -> Table:
+    """2 つの CSV を読み込み、``CSV_KEY_COLUMN`` で突合した Table を返す。
+
+    1 ファイル内の重複は ``Table.index()`` の ``TableDuplicateKeyError`` に任せる
+    （旧実装の「踏んで上書き」は採用しない）。
+    2 ファイル間の重複はプロジェクト側で ``CSVRowDuplicateKeyError`` として送出する。
+    """
     lookup: dict[str, dict[str, str]] = {}
     duplicate_counts: dict[str, int] = {}
+    read_columns = [CSV_KEY_COLUMN, *source_columns]
+
     for path in paths:
-        reader = CsvReader(path)
-        rows = reader.read_rows([CSV_KEY_COLUMN, *source_columns])
-        if not rows:
-            raise CsvNoDataRowsError(path)
-        indexed = reader.index(CSV_KEY_COLUMN)
+        with CSV(path, read_only=True) as csv_file:
+            table = csv_file.read()
+        if len(table) == 0:
+            raise CSVNoDataRowsError(path)
+        indexed = table.index(CSV_KEY_COLUMN)
         for key, row in indexed.items():
             if key in lookup:
                 duplicate_counts[key] = duplicate_counts.get(key, 1) + 1
             else:
                 lookup[key] = row
     if duplicate_counts:
-        raise CsvRowDuplicateKeyError(
+        raise CSVRowDuplicateKeyError(
             CSV_KEY_COLUMN,
             duplicate_counts,
             ", ".join(str(path) for path in paths),
         )
-    return lookup
+
+    return Table(
+        read_columns,
+        [{column: row.get(column, "") for column in read_columns} for row in lookup.values()],
+    )
 
 
 def run(settings: Config | None = None) -> TransferResult:
@@ -106,12 +120,16 @@ def run(settings: Config | None = None) -> TransferResult:
     west_csv, east_csv, input_excel, output_excel = _paths(actual_settings)
     configured_mapping = cast(Mapping[str, str], actual_settings.TRANSFER_MAPPING)
     source_columns = list(configured_mapping)
-    lookup = _merge_csv((west_csv, east_csv), source_columns)
 
-    matched_rows = 0
-    with ExcelWriter(input_excel) as source_book:
-        source_sheet = source_book.sheet(SHEET_NAME)
-        input_rows = source_sheet.read_rows_as_dicts(HEADER_ROW)
+    read_password = str(actual_settings.EXCEL.READ_PASSWORD)
+    write_password = str(actual_settings.EXCEL.WRITE_PASSWORD)
+
+    read_table = _merge_csv((west_csv, east_csv), source_columns)
+
+    with Excel(input_excel, read_only=True) as source_book:
+        input_rows = source_book.read_computed_rows_as_dicts(
+            SHEET_NAME, header_row=HEADER_ROW
+        )
         if not input_rows:
             raise InputExcelNoDataError(input_excel)
         headers = list(input_rows[0])
@@ -120,38 +138,50 @@ def run(settings: Config | None = None) -> TransferResult:
         if missing_excel:
             raise ExcelColumnNotFoundError(missing_excel)
 
-        existing_csv = list(next(iter(lookup.values())))
+        existing_csv = list(read_table.columns)
         missing_csv = [column for column in source_columns if column not in existing_csv]
         if missing_csv:
             raise TransferSourceColumnNotFoundError(missing_csv, existing_csv)
 
-        identity_mapping = {header: header for header in headers}
-        with ExcelWriter.create(output_excel, sheet_name=SHEET_NAME) as destination_book:
-            destination_sheet = destination_book.sheet(SHEET_NAME)
-            transfer = Transfer(
-                source_sheet,
-                destination_sheet,
-                identity_mapping,
-            )
+        # Excel の見出し行と一致する write Table を作る。
+        # matched_rows() はキーが一致する行だけを返すため、
+        # 一致しなかった Excel 行は write_table の初期値のまま残り、
+        # result() にそのまま反映される。
+        write_table = Table(
+            headers,
+            [{header: row.get(header, "") for header in headers} for row in input_rows],
+        )
+        transfer = Transfer(
+            read_table,
+            write_table,
+            configured_mapping,
+            read_key=CSV_KEY_COLUMN,
+            write_key=EXCEL_KEY_COLUMN,
+        )
+        matched_rows = 0
+        for read_row, write_row in transfer.matched_rows():
+            matched_rows += 1
+            transfer.apply_mapping(read_row, write_row)
+        result_table = transfer.result()
 
-            def transform(
-                source_row: dict[str, object],
-                destination_row: dict[str, object] | None,
-            ) -> None:
-                nonlocal matched_rows
-                customer = lookup.get(str(source_row.get(EXCEL_KEY_COLUMN, "")))
-                if customer is None:
-                    return
-                matched_rows += 1
-                for source_column, destination_column in configured_mapping.items():
-                    source_row[destination_column] = customer[source_column]
+    # Excel へ書き出す。openpyxl が with を抜けた時に保存する。
+    column_count = len(result_table.columns)
+    row_count = len(result_table) + 1  # +1 for header
+    with Excel(output_excel) as destination:
+        sheet = destination.sheet(SHEET_NAME)
+        if column_count > 0:
+            end_column = chr(ord("A") + column_count - 1)
+            values = [
+                list(result_table.columns),
+                *[list(row.values()) for row in result_table.read()],
+            ]
+            sheet.write_range(f"A1:{end_column}{row_count}", values)
 
-            transfer.run(transform=transform)
-            destination_book.save(
-                output_excel,
-                read_pw=str(actual_settings.EXCEL.READ_PASSWORD),
-                write_pw=str(actual_settings.EXCEL.WRITE_PASSWORD),
-            )
+    # パスワード保存は openpyxl ではできないため、COM で別名保存する。
+    # 両方とも空欄なら openpyxl だけで完了しているので COM を起動しない。
+    if read_password or write_password:
+        with ExcelCOMHandler(output_excel) as excel_com:
+            excel_com.save_as(output_excel, read_pw=read_password, write_pw=write_password)
 
     delete_files([west_csv, east_csv, input_excel], missing_ok=True)
     return TransferResult(output_path=output_excel, matched_rows=matched_rows)

@@ -57,7 +57,12 @@ def main() -> None:
         settings = _prepare(root)
         settings.EXCEL.READ_PASSWORD = "read-password"
         settings.EXCEL.WRITE_PASSWORD = "write-password"
-        with patch("src.run.ExcelWriter.save", autospec=True) as save:
+        # パスワード保存は COM の ExcelCOMHandler.save_as で行う。
+        # COM を起動しないよう __init__ / close を no-op にして Excel プロセスを起こさず、
+        # save_as だけ Mock に差し替えて呼び出し内容を検証する。
+        with patch("src.run.ExcelCOMHandler.__init__", return_value=None), patch(
+            "src.run.ExcelCOMHandler.close", return_value=None
+        ), patch("src.run.ExcelCOMHandler.save_as", autospec=True) as save:
             result = run(settings)
         assert save.call_count == 1
         _, saved_path = save.call_args.args

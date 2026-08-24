@@ -2,7 +2,7 @@
 
 import logging
 
-from comken import Config, debug, dry_run, setup_logging
+from comken import Config, comken_logger, debug, dry_run
 from comken.exceptions import ComkenError
 
 from src.run import run, validate_config
@@ -17,7 +17,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    setup_logging()
+    comken_logger.local()
     try:
         with dry_run(), debug():
             main()
