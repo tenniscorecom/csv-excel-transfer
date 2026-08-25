@@ -10,7 +10,7 @@
 | `ComkenError`（INPUT Excel にデータ行がありません） | `Sheet1` の見出し下にデータ行を追加する |
 | `TransferDestinationMultipleMatchError` | 転記先（INPUT Excel）の「業務用ID」を一意にする |
 | `ExcelApplicationNotAvailableError` | Excel がインストールされている環境で実行する |
-| `ExcelSaveNotCompletedError` | 出力先、空き容量、同名ファイルが開かれていないか確認する |
+| `ExcelSaveValidationError` | 出力先、空き容量、同名ファイルが開かれていないか確認する（元ファイルは保持される） |
 | `FileDeletionError` | 保存済み出力を確認し、残った入力ファイルを管理者へ報告する |
 | `ComkenError`（入力 CSV 2本と入力 Excel には、それぞれ別のファイルを指定） | 入力3ファイルがすべて別の実体を指すよう設定する |
 | `ComkenError`（出力先が入力ファイルと同じ） | 出力フォルダまたは OUTPUT_PREFIX を変更する |

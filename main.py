@@ -15,7 +15,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    comken_logger.local()
+    comken_logger.setup_local_logging()
     try:
         with dry_run(), debug():
             main()
