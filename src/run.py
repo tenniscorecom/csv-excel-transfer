@@ -29,6 +29,10 @@ def run() -> Path:
     excel_key_column = config.EXCEL.KEY_COLUMN
     sheet_name = config.EXCEL.SHEET_NAME
     header_row = config.EXCEL.HEADER_ROW
+    # comken の config パーサーは整数に変換できる値を自動で int にするため、
+    # config.ini に ``READ_PASSWORD = 8080`` のように数字だけ書くと int になる。
+    # パスワードは意味のある数値ではなく文字列として扱うべきなので ``str()`` で
+    # 必ず文字列化する（``typing.cast`` ではない点に注意）。
     read_password = str(config.EXCEL.READ_PASSWORD)
     write_password = str(config.EXCEL.WRITE_PASSWORD)
 
@@ -79,7 +83,7 @@ def run() -> Path:
             end_column = chr(ord("A") + column_count - 1)
             values = [
                 list(result_table.columns),
-                *[list(row.values()) for row in result_table.read()],
+                *[list(row.values()) for row in result_table.read_rows()],
             ]
             sheet.write_range(f"A1:{end_column}{row_count}", values)
 
