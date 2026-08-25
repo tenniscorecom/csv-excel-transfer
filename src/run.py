@@ -39,7 +39,7 @@ def run() -> Path:
     read_table = _merge_csv((west_csv, east_csv), csv_key_column)
 
     with Excel(input_excel, read_only=True) as source_book:
-        input_rows = source_book.read_computed_rows_as_dicts(sheet_name, header_row=header_row)
+        input_rows = source_book.read(sheet_name, header_row=header_row).read_rows()
         if not input_rows:
             raise ComkenError(f"INPUT Excel にデータ行がありません: {input_excel}")
         headers = list(input_rows[0])
